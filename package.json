@@ -1,0 +1,329 @@
+{
+  "name": "vvgit",
+  "displayName": "VV Git",
+  "description": "Fast, focused Git blame, history, diff, comparison, and squash-to-patch tools for VS Code.",
+  "version": "0.2.0",
+  "publisher": "VictorChen",
+  "license": "MIT",
+  "pricing": "Free",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0b0d12",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "keywords": [
+    "git",
+    "blame",
+    "diff",
+    "commit",
+    "history",
+    "branch",
+    "squash",
+    "format-patch",
+    "lightweight"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:victorchentw/vvgit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/victorchentw/vvgit/issues"
+  },
+  "homepage": "https://github.com/victorchentw/vvgit#readme",
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:vvgit.toggleInlineBlame",
+    "onCommand:vvgit.blameFile",
+    "onCommand:vvgit.showCommitMessage",
+    "onCommand:vvgit.showDiff",
+    "onCommand:vvgit.showRepositoryDiff",
+    "onCommand:vvgit.searchLog",
+    "onCommand:vvgit.showBranchLog",
+    "onCommand:vvgit.compareCommits",
+    "onCommand:vvgit.compareBranches",
+    "onCommand:vvgit.squashBranchToBranch",
+    "onCommand:vvgit.showBranches",
+    "onCommand:vvgit.refreshBlame"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "vvgit.toggleInlineBlame",
+        "title": "VV Git: Toggle Inline Blame",
+        "category": "VV Git",
+        "icon": "$(eye)",
+        "enablement": "resourceScheme == file"
+      },
+      {
+        "command": "vvgit.blameFile",
+        "title": "VV Git: Blame Current File",
+        "category": "VV Git",
+        "icon": "$(debug-alt)",
+        "enablement": "resourceScheme == file"
+      },
+      {
+        "command": "vvgit.showCommitMessage",
+        "title": "VV Git: Show Commit Message",
+        "category": "VV Git",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "vvgit.showDiff",
+        "title": "VV Git: Show File Diff",
+        "category": "VV Git",
+        "icon": "$(diff)",
+        "enablement": "resourceScheme == file"
+      },
+      {
+        "command": "vvgit.showRepositoryDiff",
+        "title": "VV Git: Show Repository Diff",
+        "category": "VV Git",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "vvgit.searchLog",
+        "title": "VV Git: Search Commit Messages",
+        "category": "VV Git",
+        "icon": "$(search)"
+      },
+      {
+        "command": "vvgit.showBranchLog",
+        "title": "VV Git: Browse Branch Log",
+        "category": "VV Git",
+        "icon": "$(history)"
+      },
+      {
+        "command": "vvgit.compareCommits",
+        "title": "VV Git: Compare Commits or References",
+        "category": "VV Git",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "vvgit.compareBranches",
+        "title": "VV Git: Compare Branches",
+        "category": "VV Git",
+        "icon": "$(git-compare)"
+      },
+      {
+        "command": "vvgit.squashBranchToBranch",
+        "title": "VV Git: Squash Branch to Branch + Create Patch",
+        "category": "VV Git",
+        "icon": "$(git-merge)"
+      },
+      {
+        "command": "vvgit.showBranches",
+        "title": "VV Git: Browse Branches",
+        "category": "VV Git",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "vvgit.refreshBlame",
+        "title": "VV Git: Refresh Blame View",
+        "category": "VV Git",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "vvgit.toggleInlineBlame",
+          "when": "resourceScheme == file",
+          "group": "navigation@50"
+        },
+        {
+          "command": "vvgit.showDiff",
+          "when": "resourceScheme == file",
+          "group": "navigation@51"
+        },
+        {
+          "command": "vvgit.blameFile",
+          "when": "resourceScheme == file",
+          "group": "navigation@52"
+        },
+        {
+          "command": "vvgit.showCommitMessage",
+          "when": "resourceScheme == file || resourceScheme == vvgit-blame",
+          "group": "navigation@53"
+        },
+        {
+          "command": "vvgit.searchLog",
+          "when": "resourceScheme == file || resourceScheme == vvgit-blame",
+          "group": "navigation@54"
+        },
+        {
+          "command": "vvgit.compareCommits",
+          "when": "resourceScheme == file || resourceScheme == vvgit-blame",
+          "group": "navigation@55"
+        },
+        {
+          "command": "vvgit.showBranches",
+          "when": "resourceScheme == file || resourceScheme == vvgit-blame",
+          "group": "navigation@56"
+        },
+        {
+          "command": "vvgit.compareBranches",
+          "when": "resourceScheme == file || resourceScheme == vvgit-blame",
+          "group": "navigation@57"
+        },
+        {
+          "command": "vvgit.squashBranchToBranch",
+          "when": "resourceScheme == file || resourceScheme == vvgit-blame",
+          "group": "navigation@58"
+        },
+        {
+          "command": "vvgit.showRepositoryDiff",
+          "when": "resourceScheme == file || resourceScheme == vvgit-blame",
+          "group": "navigation@59"
+        },
+        {
+          "command": "vvgit.refreshBlame",
+          "when": "resourceScheme == file || resourceScheme == vvgit-blame",
+          "group": "navigation@60"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "vvgit.showDiff",
+          "when": "resourceScheme == file",
+          "group": "VV Git@1"
+        },
+        {
+          "command": "vvgit.blameFile",
+          "when": "resourceScheme == file",
+          "group": "VV Git@2"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "vvgit.showDiff",
+          "when": "resourceScheme == file",
+          "group": "VV Git@1"
+        },
+        {
+          "command": "vvgit.blameFile",
+          "when": "resourceScheme == file",
+          "group": "VV Git@2"
+        }
+      ],
+      "scm/title": [
+        {
+          "command": "vvgit.showRepositoryDiff",
+          "when": "scmProvider == git",
+          "group": "VV Git@1"
+        },
+        {
+          "command": "vvgit.searchLog",
+          "when": "scmProvider == git",
+          "group": "VV Git@2"
+        },
+        {
+          "command": "vvgit.compareBranches",
+          "when": "scmProvider == git",
+          "group": "VV Git@3"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "vvgit.toggleInlineBlame",
+        "key": "ctrl+alt+b",
+        "mac": "cmd+alt+b",
+        "when": "editorTextFocus && resourceScheme == file"
+      },
+      {
+        "command": "vvgit.showDiff",
+        "key": "ctrl+alt+d",
+        "mac": "cmd+alt+d",
+        "when": "editorTextFocus && resourceScheme == file"
+      },
+      {
+        "command": "vvgit.searchLog",
+        "key": "ctrl+alt+l",
+        "mac": "cmd+alt+l",
+        "when": "editorTextFocus"
+      }
+    ],
+    "configuration": {
+      "title": "VV Git",
+      "properties": {
+        "vvgit.gitPath": {
+          "type": "string",
+          "default": "git",
+          "description": "Git executable name or absolute path."
+        },
+        "vvgit.inlineBlame": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the author, relative time, and commit subject after the active cursor line."
+        },
+        "vvgit.blame.dateFormat": {
+          "type": "string",
+          "enum": [
+            "relative",
+            "short",
+            "iso"
+          ],
+          "enumDescriptions": [
+            "Show values such as 3d ago.",
+            "Show the local commit date as YYYY-MM-DD.",
+            "Show an ISO-8601 timestamp."
+          ],
+          "default": "relative",
+          "description": "Date format used by inline blame."
+        },
+        "vvgit.blame.maxLineCount": {
+          "type": "number",
+          "minimum": 100,
+          "maximum": 100000,
+          "default": 10000,
+          "description": "Do not calculate inline blame for files larger than this many lines."
+        },
+        "vvgit.blame.inlineSummaryMaxLength": {
+          "type": "number",
+          "minimum": 20,
+          "maximum": 240,
+          "default": 72,
+          "description": "Maximum commit subject length shown after the cursor line."
+        },
+        "vvgit.blame.sidecarSummaryMaxLength": {
+          "type": "number",
+          "minimum": 20,
+          "maximum": 240,
+          "default": 80,
+          "description": "Maximum commit subject length shown in the left blame pane."
+        },
+        "vvgit.log.maxCommits": {
+          "type": "number",
+          "minimum": 20,
+          "maximum": 2000,
+          "default": 250,
+          "description": "Maximum commits loaded into quick-pick history searches."
+        },
+        "vvgit.patchDirectory": {
+          "type": "string",
+          "default": "patches",
+          "description": "Default directory for squash format-patch files, relative to the repository root."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.3"
+  }
+}
