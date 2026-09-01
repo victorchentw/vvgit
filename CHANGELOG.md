@@ -1,11 +1,19 @@
 # Changelog
 
+## 0.3.0
+
+- Changes full-file blame to an in-editor GitLens-style annotation column before source code, avoiding the awkward duplicate/terminal-like pane.
+- Keeps inline blame on the cursor line only.
+- Removes diff previews and the `Changes in ...` section from blame hovers to keep them readable.
+- Adds hover actions for commit message, diff, compare, history search, file blame, branches, merge, and squash + patch.
+- Adds a guarded branch-to-branch merge command and fixes squash commit creation to invoke `git commit` correctly.
+
 ## 0.2.0
 
-- Replaces terminal-style file blame output with a narrow, line-aligned blame editor on the left of the real source editor.
-- Keeps the blame pane synchronized with source scrolling and cursor movement.
+- Replaces terminal-style file blame output with GitLens-style line-aligned annotations before the source code in the same editor.
+- Keeps full-file blame native to the editor's scrolling and line layout.
 - Limits inline blame to the active cursor line and shows author, relative time, and commit subject.
-- Adds a floating hover card with full commit date, message, changed-line preview, file statistics, hash, and a full-message action.
+- Adds a clean floating hover card with full commit date, message, file statistics, hash, and quick Git actions.
 - Adds compact editor-title Git actions for search, compare, branch browsing, repository diff, and squash-to-patch.
 
 ## 0.1.0 — Initial release

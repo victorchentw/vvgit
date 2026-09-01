@@ -1,8 +1,8 @@
 # VV Git — Fast Git History for VS Code
 
-A small, focused VS Code extension for Git blame, commit history, diffs, branch comparison, and squash-to-patch workflows. **VV Git** uses the local `git` executable and native VS Code quick picks/editors instead of a large webview or a full repository graph.
+A small, focused VS Code extension for Git blame, commit history, diffs, branch comparison, merge, and squash-to-patch workflows. **VV Git** uses the local `git` executable and native VS Code quick picks/editors instead of a large webview or a full repository graph.
 
-Current release: `0.2.0`
+Current release: `0.3.0`
 
 Repository: `git@github.com:victorchentw/vvgit.git`
 
@@ -13,7 +13,7 @@ Repository: `git@github.com:victorchentw/vvgit.git`
 Install from the VS Code Marketplace when published, or install a packaged `.vsix` file:
 
 ```bash
-code --install-extension vvgit-0.2.0.vsix
+code --install-extension vvgit-0.3.0.vsix
 ```
 
 Open a Git workspace. Inline blame is enabled by default and appears only on the active cursor line.
@@ -22,14 +22,15 @@ Open a Git workspace. Inline blame is enabled by default and appears only on the
 
 ## Features
 
-- **Inline cursor blame** — Shows only the active line's author, relative time, and commit subject. Hover the line for a floating GitLens-style card with the full date, commit message, changed lines, file statistics, hash, and a one-click full-message action.
-- **Side-by-side file blame** — **VV Git: Blame Current File** opens a narrow, line-aligned blame pane on the left and the real source editor on the right. The left pane follows source scrolling and cursor movement and shows author, relative time, subject, and short hash for every line.
-- **Native Git views** — Blame and diff views use normal VS Code editors and quick picks rather than a terminal transcript or a large webview.
+- **Inline cursor blame** — Shows only the active line's author, relative time, and commit subject. Hover the line for a floating GitLens-style card with the full date, commit message, file statistics, hash, and quick Git actions.
+- **GitLens-style file blame** — **VV Git: Toggle File Blame** adds a line-aligned annotation column directly before the source code in the same editor. It shows author, relative time, subject, and short hash at each contiguous commit block, so it scrolls and aligns natively without a terminal transcript or a duplicate source editor.
+- **Native Git views** — Blame and diff views use VS Code decorations, hovers, quick picks, and editors rather than a large webview.
 - **Commit messages** — Search recent commits or choose a reference and display the full message, author, date, and changed-file summary quickly.
 - **File and repository diff** — Compare the current file with `HEAD`, or open the complete working-tree diff, including untracked files.
 - **Commit comparison** — Quickly compare two commits, branches, tags, or other Git references in a read-only diff editor.
 - **Commit-message search** — Search all reachable history by ticket number, keyword, or phrase.
 - **Branch browsing** — Pick a local/remote branch and browse its recent log.
+- **Merge branch to branch** — Select a source and target branch; VV Git checks out the target and creates a confirmed `--no-ff` merge commit.
 - **Squash branch to branch + patch** — Select source `BIA-222` and target `dev`; VV Git checks out `dev`, performs a squash merge, creates the commit, and writes `git format-patch -1 BIA-222 --stdout` to a patch file.
 - **Lightweight by design** — No GitHub account, background service, repository database, graph renderer, or bundled Git implementation. Commands run only when needed.
 
@@ -51,7 +52,7 @@ Open the Command Palette (`Ctrl/Cmd+Shift+P`) and search for **VV Git**:
 | Command | Purpose |
 | :--- | :--- |
 | `Toggle Inline Blame` | Turn the active-line author/time/subject decoration on or off. |
-| `Blame Current File` | Open a line-aligned blame pane on the left of the source editor. |
+| `Toggle File Blame` | Toggle the GitLens-style left annotation column for the current file. |
 | `Show Commit Message` | Pick a commit/reference and show its message and stat. |
 | `Show File Diff` | Compare the active file with `HEAD`. |
 | `Show Repository Diff` | Show tracked and untracked working-tree changes. |
@@ -59,10 +60,11 @@ Open the Command Palette (`Ctrl/Cmd+Shift+P`) and search for **VV Git**:
 | `Browse Branch Log` | Browse commits on a selected branch. |
 | `Compare Commits or References` | Compare two commits, branches, tags, or refs. |
 | `Compare Branches` | Compare two branches directly. |
+| `Merge Branch to Branch` | Merge a source branch into a target with a merge commit. |
 | `Squash Branch to Branch + Create Patch` | Squash a source branch into a target and create `format-patch -1`. |
 | `Browse Branches` | Pick a branch and open its recent log. |
 
-The file actions are available from the editor title bar, editor context menu, and Explorer context menu. History search, commit/reference comparison, branch browsing, repository diff, and squash-to-patch are also available as compact Git buttons in the editor title bar.
+The file actions are available from the editor title bar, editor context menu, and Explorer context menu. History search, commit/reference comparison, branch browsing, repository diff, merge, and squash-to-patch are also available as compact Git buttons in the editor title bar.
 
 ---
 
@@ -84,7 +86,7 @@ If Git is installed outside `PATH`, set `vvgit.gitPath` to its command name or a
 | `vvgit.blame.dateFormat` | String | `"relative"` | `relative`, `short`, or `iso`. |
 | `vvgit.blame.maxLineCount` | Number | `10000` | Skip inline blame for files larger than this limit. |
 | `vvgit.blame.inlineSummaryMaxLength` | Number | `72` | Maximum subject length shown beside the cursor line. |
-| `vvgit.blame.sidecarSummaryMaxLength` | Number | `80` | Maximum subject length shown in the left blame pane. |
+| `vvgit.blame.fileBlameSummaryMaxLength` | Number | `60` | Maximum subject length shown in the left file-blame annotation column. |
 | `vvgit.log.maxCommits` | Number | `250` | Maximum commits loaded into history quick picks. |
 | `vvgit.patchDirectory` | String | `"patches"` | Default squash patch directory, relative to the repository root. |
 

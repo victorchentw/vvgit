@@ -3,7 +3,7 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import {
   BlameHoverProvider,
-  BlameSidecarController,
+  FileBlameController,
   InlineBlameController,
 } from "./blame";
 import {
@@ -88,8 +88,8 @@ export function activate(context: vscode.ExtensionContext): void {
   const git = new GitService();
   const output = vscode.window.createOutputChannel("VV Git");
   const blame = new InlineBlameController(git);
+  const fileBlame = new FileBlameController(git);
   const documents = new GitDocumentProvider(git);
-  const blameSidecar = new BlameSidecarController(git, documents);
   const branchStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 90);
   branchStatus.command = "vvgit.showBranches";
   branchStatus.tooltip = "VV Git: browse branches";
@@ -98,14 +98,13 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     output,
     blame,
-    blameSidecar,
+    fileBlame,
     documents,
     branchStatus,
-    vscode.languages.registerHoverProvider({ scheme: "file" }, new BlameHoverProvider(blame)),
+    vscode.languages.registerHoverProvider({ scheme: "file" }, new BlameHoverProvider(blame, fileBlame)),
     vscode.workspace.registerTextDocumentContentProvider("vvgit-ref", documents),
     vscode.workspace.registerTextDocumentContentProvider("vvgit-worktree", documents),
     vscode.workspace.registerTextDocumentContentProvider("vvgit-diff", documents),
-    vscode.workspace.registerTextDocumentContentProvider("vvgit-blame", documents),
   );
 
   const showCommandError = (action: string, error: unknown): void => {
@@ -116,10 +115,6 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const repositoryRoot = async (resource?: vscode.Uri): Promise<string> => {
     const active = vscode.window.activeTextEditor;
-    if (!resource && active?.document.uri.scheme === "vvgit-blame") {
-      const sidecarRoot = blameSidecar.activeRoot();
-      if (sidecarRoot) return sidecarRoot;
-    }
     const candidate = resource?.scheme === "file" ? resource : active?.document.uri;
     return git.repositoryRoot(candidate?.scheme === "file" ? candidate : undefined);
   };
@@ -294,7 +289,15 @@ export function activate(context: vscode.ExtensionContext): void {
   const showBlame = async (resource?: vscode.Uri): Promise<void> => {
     const target = await fileTarget(resource);
     if (!target) return;
-    await blameSidecar.open(target.document, target.root, target.relativePath);
+    if (fileBlame.isShowing(target.document)) {
+      fileBlame.clear();
+      vscode.window.showInformationMessage("VV Git file blame disabled for this file.");
+      return;
+    }
+    const editor = vscode.window.visibleTextEditors.find(
+      (candidate) => candidate.document.uri.toString() === target.document.uri.toString(),
+    ) || await vscode.window.showTextDocument(target.document, { preview: false });
+    await fileBlame.open(editor, target.root, target.relativePath);
   };
 
   const openDiffDocument = async (content: string, title: string): Promise<void> => {
@@ -387,13 +390,15 @@ export function activate(context: vscode.ExtensionContext): void {
     await compareRefs(left, right, root, "VV Git · branch compare");
   };
 
-  const searchLog = async (): Promise<void> => {
+  const searchLog = async (initialQuery?: unknown): Promise<void> => {
     const root = await repositoryRoot();
-    const query = await vscode.window.showInputBox({
-      prompt: "Search Git commit messages",
-      placeHolder: "keyword, ticket number, or phrase",
-      ignoreFocusOut: false,
-    });
+    const query = typeof initialQuery === "string" && initialQuery.trim()
+      ? initialQuery.trim()
+      : await vscode.window.showInputBox({
+        prompt: "Search Git commit messages",
+        placeHolder: "keyword, ticket number, or phrase",
+        ignoreFocusOut: false,
+      });
     if (query === undefined) return;
     const commits = await git.log(root, {
       grep: query,
@@ -421,6 +426,76 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     const selected = await pickCommitFromList(commits, `Commits on ${branch}`);
     if (selected) await showCommit(root, selected);
+  };
+
+  const mergeBranchToBranch = async (): Promise<void> => {
+    const root = await repositoryRoot();
+    const localBranches = (await git.branches(root)).filter((branch) => !branch.isRemote);
+    if (localBranches.length < 2) {
+      vscode.window.showInformationMessage("A branch merge needs at least two local branches.");
+      return;
+    }
+
+    const source = await pickBranch(root, "Select the source branch to merge", true);
+    if (!source) return;
+    const target = await pickBranch(root, "Select the target branch to receive the merge", true);
+    if (!target) return;
+    if (source === target) {
+      vscode.window.showErrorMessage("Source and target branches must be different.");
+      return;
+    }
+
+    const ahead = await git.commitsAhead(root, target, source);
+    if (ahead < 1) {
+      vscode.window.showInformationMessage(`${source} has no commits ahead of ${target}.`);
+      return;
+    }
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Merge ${source} into ${target}? Git will check out ${target} and create a merge commit.`,
+      { modal: true },
+      "Merge branches",
+    );
+    if (confirmation !== "Merge branches") return;
+
+    const status = await git.status(root);
+    if (status.trim()) {
+      throw new Error("The working tree is not clean. Commit or stash changes before a branch merge.");
+    }
+    const operation = await git.operationInProgress(root);
+    if (operation) {
+      throw new Error(`A Git ${operation} is already in progress. Finish or abort it before a branch merge.`);
+    }
+
+    const targetHead = await git.resolveCommit(root, target);
+    const originalBranch = await git.currentBranch(root);
+    const originalRef = originalBranch || await git.headHash(root);
+    let mergeStarted = false;
+    let targetCheckedOut = originalBranch === target;
+
+    try {
+      if (!targetCheckedOut) {
+        await git.checkout(root, target);
+        targetCheckedOut = true;
+      }
+      mergeStarted = true;
+      await git.merge(root, source);
+    } catch (error) {
+      if (mergeStarted) {
+        await git.resetHard(root, targetHead).catch(() => undefined);
+      }
+      if (targetCheckedOut && originalBranch !== target) {
+        await git.checkout(root, originalRef).catch(() => undefined);
+      }
+      throw error;
+    }
+
+    const newHead = await git.headHash(root);
+    output.appendLine(`Merged ${source} into ${target}`);
+    output.appendLine(`Commit: ${newHead}`);
+    output.show(true);
+    await refreshBranchStatus();
+    vscode.window.showInformationMessage(`Merged ${source} into ${target}.`);
   };
 
   const squashBranchToBranch = async (): Promise<void> => {
@@ -515,7 +590,7 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       mergeStarted = true;
       await git.mergeSquash(root, source);
-      await git.commit(root, commitMessage.trim());
+      await git.createCommit(root, commitMessage.trim());
       committed = true;
       await writeAtomically(patchPath, patch);
     } catch (error) {
@@ -589,11 +664,12 @@ export function activate(context: vscode.ExtensionContext): void {
   register("vvgit.showBranchLog", "Unable to show branch log", showBranchLog);
   register("vvgit.compareCommits", "Unable to compare Git references", compareCommits);
   register("vvgit.compareBranches", "Unable to compare branches", compareBranches);
+  register("vvgit.mergeBranchToBranch", "Unable to merge branches", mergeBranchToBranch);
   register("vvgit.squashBranchToBranch", "Unable to squash branches", squashBranchToBranch);
   register("vvgit.showBranches", "Unable to browse branches", showBranchLog);
   register("vvgit.refreshBlame", "Unable to refresh blame", async () => {
     await blame.refresh(vscode.window.activeTextEditor);
-    await blameSidecar.refreshActive();
+    await fileBlame.refresh();
   });
 
   context.subscriptions.push(

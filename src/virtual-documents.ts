@@ -9,21 +9,15 @@ interface SnapshotPayload {
   relativePath: string;
 }
 
-/** Read-only documents used to display Git snapshots, diffs, and blame metadata. */
+/** Read-only documents used to display Git snapshots and repository diffs. */
 export class GitDocumentProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
   private readonly diffDocuments = new Map<string, string>();
-  private readonly blameDocuments = new Map<string, string>();
-  private readonly contentChanged = new vscode.EventEmitter<vscode.Uri>();
   private sequence = 0;
-
-  public readonly onDidChange = this.contentChanged.event;
 
   constructor(private readonly git: GitService) {}
 
   public dispose(): void {
     this.diffDocuments.clear();
-    this.blameDocuments.clear();
-    this.contentChanged.dispose();
   }
 
   public provideTextDocumentContent(
@@ -32,9 +26,6 @@ export class GitDocumentProvider implements vscode.TextDocumentContentProvider, 
   ): vscode.ProviderResult<string> {
     if (uri.scheme === "vvgit-diff") {
       return this.diffDocuments.get(uri.path.split("/").pop() || "") || "";
-    }
-    if (uri.scheme === "vvgit-blame") {
-      return this.blameDocuments.get(uri.toString()) || "";
     }
 
     const payload = this.payload(uri);
@@ -52,21 +43,6 @@ export class GitDocumentProvider implements vscode.TextDocumentContentProvider, 
 
   public worktreeUri(root: string, relativePath: string): vscode.Uri {
     return this.payloadUri("vvgit-worktree", { root, ref: "", relativePath });
-  }
-
-  public blameUri(label: string): vscode.Uri {
-    const id = `${Date.now().toString(36)}-${(++this.sequence).toString(36)}`;
-    return vscode.Uri.parse(`vvgit-blame:/blame/${encodeURIComponent(label)}-${id}`);
-  }
-
-  public setBlameContent(uri: vscode.Uri, content: string): void {
-    this.blameDocuments.set(uri.toString(), content);
-    while (this.blameDocuments.size > 3) {
-      const first = this.blameDocuments.keys().next().value;
-      if (!first) break;
-      this.blameDocuments.delete(first);
-    }
-    this.contentChanged.fire(uri);
   }
 
   public diffUri(content: string): vscode.Uri {

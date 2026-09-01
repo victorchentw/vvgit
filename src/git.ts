@@ -331,19 +331,6 @@ export class GitService {
     ], root);
   }
 
-  public async commitDiff(root: string, ref: string, relativePath: string): Promise<string> {
-    return this.run([
-      "show",
-      "--no-color",
-      "--no-ext-diff",
-      "--format=",
-      "--unified=3",
-      this.safeRevision(ref),
-      "--",
-      this.safeRelativePath(relativePath),
-    ], root);
-  }
-
   public async blame(root: string, relativePath: string): Promise<BlameLine[]> {
     const file = this.safeRelativePath(relativePath);
     const output = await this.run([
@@ -478,6 +465,21 @@ export class GitService {
 
   public async checkout(root: string, branch: string): Promise<void> {
     await this.run(["checkout", "--quiet", this.safeRevision(branch)], root);
+  }
+
+  public async createCommit(root: string, message: string): Promise<void> {
+    const subject = message.trim();
+    if (!subject) throw new Error("A commit message is required.");
+    await this.run(["commit", "-m", subject], root);
+  }
+
+  public async merge(root: string, sourceBranch: string): Promise<void> {
+    await this.run([
+      "merge",
+      "--no-ff",
+      "--no-edit",
+      this.safeRevision(sourceBranch),
+    ], root);
   }
 
   public async mergeSquash(root: string, sourceBranch: string): Promise<void> {

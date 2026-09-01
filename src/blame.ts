@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import { BlameLine, CommitDetails, GitService } from "./git";
-import { GitDocumentProvider } from "./virtual-documents";
 
 interface BlameCacheEntry {
   version: number;
@@ -12,14 +11,64 @@ interface BlameCacheEntry {
 interface CommitHoverInfo {
   details?: CommitDetails;
   stat?: string;
-  diff?: string;
 }
 
-interface BlameSidecarSession {
-  sourceUri: vscode.Uri;
-  root: string;
-  relativePath: string;
-  blameUri: vscode.Uri;
+const TRUSTED_COMMANDS = [
+  "vvgit.showCommitMessage",
+  "vvgit.showDiff",
+  "vvgit.compareCommits",
+  "vvgit.searchLog",
+  "vvgit.blameFile",
+  "vvgit.showBranches",
+  "vvgit.mergeBranchToBranch",
+  "vvgit.squashBranchToBranch",
+];
+
+const MAX_SMALL_INTEGER = 2 ** 30 - 1;
+
+function cssInjection(styles: Record<string, string | undefined>): string {
+  const textDecoration = styles["text-decoration"] || "none";
+  return `text-decoration:${textDecoration};${Object.entries(styles)
+    .filter(([key, value]) => key !== "text-decoration" && value)
+    .map(([key, value]) => `${key}:${value}`)
+    .join(";")};`;
+}
+
+function lineStartRange(lineNumber: number): vscode.Range {
+  // GitLens anchors `before` decorations at the start of a line. VS Code
+  // accepts this zero-width range in practice and it keeps the source text
+  // itself completely untouched.
+  return new vscode.Range(lineNumber, 0, lineNumber, 0);
+}
+
+function lineEndRange(lineNumber: number): vscode.Range {
+  // A large character position is clamped to the end of the line by VS Code,
+  // which keeps an `after` attachment at the visual end of short and empty
+  // lines alike.
+  return new vscode.Range(lineNumber, MAX_SMALL_INTEGER, lineNumber, MAX_SMALL_INTEGER);
+}
+
+function fileBlameBefore(separator: boolean): vscode.ThemableDecorationAttachmentRenderOptions {
+  return {
+    backgroundColor: new vscode.ThemeColor("vvgit.fileBlameBackground"),
+    color: new vscode.ThemeColor("vvgit.fileBlameForeground"),
+    fontStyle: "normal",
+    fontWeight: "normal",
+    height: "100%",
+    margin: "0 26px -1px 0",
+    width: "360px",
+    textDecoration: cssInjection({
+      "text-decoration": separator ? "overline solid rgba(0, 0, 0, .2)" : undefined,
+      "box-sizing": "border-box",
+      "padding": "0 4px",
+      "font-family": "var(--vscode-editor-font-family)",
+      "font-size": "var(--vscode-editor-font-size)",
+      "white-space": "pre",
+      "font-variant-numeric": "tabular-nums",
+      "overflow": "hidden",
+      "text-overflow": "ellipsis",
+    }),
+  };
 }
 
 function isUncommitted(commit: string): boolean {
@@ -85,9 +134,29 @@ export function blameAuthor(line: BlameLine): string {
   return line.author || "Unknown author";
 }
 
-function commitLink(commit: string): string {
-  const command = `command:vvgit.showCommitMessage?${encodeURIComponent(JSON.stringify([commit]))}`;
-  return `[Show full commit message](${command})`;
+function commandLink(command: string, args: unknown[], label: string): string {
+  const uri = `command:${command}?${encodeURIComponent(JSON.stringify(args))}`;
+  return `[${label}](${uri})`;
+}
+
+function commitActions(line: BlameLine): string {
+  const actions = [
+    commandLink("vvgit.showDiff", [], "Diff"),
+    commandLink("vvgit.blameFile", [], "File blame"),
+    commandLink("vvgit.showBranches", [], "Branches"),
+    commandLink("vvgit.mergeBranchToBranch", [], "Merge"),
+    commandLink("vvgit.squashBranchToBranch", [], "Squash + patch"),
+  ];
+
+  if (!isUncommitted(line.commit)) {
+    actions.unshift(
+      commandLink("vvgit.showCommitMessage", [line.commit], "Commit message"),
+      commandLink("vvgit.compareCommits", [line.commit], "Compare"),
+      commandLink("vvgit.searchLog", [line.summary], "Search"),
+    );
+  }
+
+  return actions.join("  ·  ");
 }
 
 function statSummary(stat: string | undefined): string | undefined {
@@ -99,13 +168,54 @@ function statSummary(stat: string | undefined): string | undefined {
     .find((line) => /\d+ files? changed/.test(line));
 }
 
-function diffSnippet(diff: string | undefined, sourceLine: string): string {
-  const changed = (diff || "")
-    .split(/\r?\n/)
-    .filter((line) => /^[+-]/.test(line) && !line.startsWith("+++") && !line.startsWith("---"))
-    .slice(0, 12);
-  if (changed.length) return changed.join("\n").slice(0, 4_000);
-  return `+ ${sourceLine}`.slice(0, 4_000);
+async function makeBlameHover(
+  git: GitService,
+  hoverCache: Map<string, Promise<CommitHoverInfo>>,
+  cache: BlameCacheEntry,
+  document: vscode.TextDocument,
+  position: vscode.Position,
+  line: BlameLine,
+): Promise<vscode.Hover> {
+  const sourceText = document.lineAt(position.line).text;
+  const markdown = new vscode.MarkdownString();
+  const author = line.authorMail
+    ? `${blameAuthor(line)} · ${line.authorMail}`
+    : blameAuthor(line);
+  markdown.appendMarkdown(`**${markdownText(author)}** · ${markdownText(blameDate(line.authorTime))} (${markdownText(blameFullDate(line.authorTime))})\n\n`);
+
+  if (isUncommitted(line.commit)) {
+    markdown.appendMarkdown("**Working tree change**\n\n");
+    markdown.appendMarkdown("This line is not part of a commit yet.\n\n");
+    markdown.appendMarkdown(commitActions(line));
+    markdown.isTrusted = { enabledCommands: TRUSTED_COMMANDS };
+    return new vscode.Hover(markdown, new vscode.Range(position.line, 0, position.line, sourceText.length));
+  }
+
+  const key = `${cache.root}\u0000${cache.relativePath}\u0000${line.commit}`;
+  let infoPromise = hoverCache.get(key);
+  if (!infoPromise) {
+    infoPromise = Promise.all([
+      git.commit(cache.root, line.commit).catch(() => undefined),
+      git.commitStat(cache.root, line.commit).catch(() => undefined),
+    ]).then(([details, stat]) => ({ details, stat }));
+    hoverCache.set(key, infoPromise);
+  }
+  const info = await infoPromise;
+  const details = info.details;
+  const subject = details?.subject || line.summary || "(no commit message)";
+  markdown.appendMarkdown(`**${markdownText(subject)}**\n\n`);
+
+  const body = details?.body || "";
+  const rest = body.split(/\r?\n/).slice(1).join("\n").trim();
+  if (rest) markdown.appendText(`${rest}\n\n`);
+
+  const shortHash = line.commit.slice(0, 10);
+  markdown.appendMarkdown(`\`${shortHash}\` · ${markdownText(cache.relativePath)}\n\n`);
+  const summary = statSummary(info.stat);
+  if (summary) markdown.appendMarkdown(`**${markdownText(summary)}**\n\n`);
+  markdown.appendMarkdown(commitActions(line));
+  markdown.isTrusted = { enabledCommands: TRUSTED_COMMANDS };
+  return new vscode.Hover(markdown, new vscode.Range(position.line, 0, position.line, sourceText.length));
 }
 
 /** Shows blame only on the active cursor line and keeps a small metadata cache. */
@@ -122,12 +232,18 @@ export class InlineBlameController implements vscode.Disposable {
   constructor(private readonly git: GitService) {
     this.enabled = vscode.workspace.getConfiguration("vvgit").get<boolean>("inlineBlame", true);
     this.decoration = vscode.window.createTextEditorDecorationType({
-      rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
+      rangeBehavior: vscode.DecorationRangeBehavior.OpenOpen,
       after: {
         color: new vscode.ThemeColor("editorCodeLens.foreground"),
         fontStyle: "normal",
         fontWeight: "normal",
         margin: "0 0 0 2em",
+        textDecoration: cssInjection({
+          "white-space": "pre",
+          "font-family": "var(--vscode-editor-font-family)",
+          "font-size": "var(--vscode-editor-font-size)",
+          "font-variant-numeric": "tabular-nums",
+        }),
       },
     });
 
@@ -191,10 +307,6 @@ export class InlineBlameController implements vscode.Disposable {
     return this.enabled;
   }
 
-  public isEnabled(): boolean {
-    return this.enabled;
-  }
-
   public scheduleRefresh(): void {
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     this.refreshTimer = setTimeout(() => {
@@ -245,10 +357,23 @@ export class InlineBlameController implements vscode.Disposable {
     }
   }
 
-  public line(document: vscode.TextDocument, lineNumber: number): BlameLine | undefined {
-    const cached = this.cache.get(document.uri.toString());
-    if (!cached || cached.version !== document.version) return undefined;
-    return cached.lines.find((line) => line.lineNumber === lineNumber);
+  public async provideHover(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+  ): Promise<vscode.Hover | undefined> {
+    const activeEditor = vscode.window.activeTextEditor;
+    if (
+      !activeEditor
+      || activeEditor.document.uri.toString() !== document.uri.toString()
+      || activeEditor.selection.active.line !== position.line
+    ) return undefined;
+
+    const cache = this.cache.get(document.uri.toString());
+    const line = cache?.version === document.version
+      ? cache.lines.find((item) => item.lineNumber === position.line)
+      : undefined;
+    if (!cache || !line) return undefined;
+    return makeBlameHover(this.git, this.hoverCache, cache, document, position, line);
   }
 
   private applyCurrentLine(editor: vscode.TextEditor): void {
@@ -257,7 +382,10 @@ export class InlineBlameController implements vscode.Disposable {
       return;
     }
     const lineNumber = editor.selection.active.line;
-    const line = this.line(editor.document, lineNumber);
+    const cache = this.cache.get(editor.document.uri.toString());
+    const line = cache?.version === editor.document.version
+      ? cache.lines.find((item) => item.lineNumber === lineNumber)
+      : undefined;
     if (!line) {
       editor.setDecorations(this.decoration, []);
       return;
@@ -267,119 +395,65 @@ export class InlineBlameController implements vscode.Disposable {
       ? `${line.summary.slice(0, Math.max(1, maxSummary - 1))}…`
       : line.summary;
     const text = `${blameAuthor(line)} · ${blameDate(line.authorTime)}${summary ? ` · ${summary}` : ""}`;
-    const end = editor.document.lineAt(lineNumber).text.length;
     editor.setDecorations(this.decoration, [{
-      range: new vscode.Range(lineNumber, 0, lineNumber, end),
+      range: lineEndRange(lineNumber),
       renderOptions: { after: { contentText: text } },
     }]);
   }
-
-  private async hoverInfo(cache: BlameCacheEntry, line: BlameLine): Promise<CommitHoverInfo> {
-    if (isUncommitted(line.commit)) return {};
-    const key = `${cache.root}\u0000${cache.relativePath}\u0000${line.commit}`;
-    const existing = this.hoverCache.get(key);
-    if (existing) return existing;
-
-    const promise = Promise.all([
-      this.git.commit(cache.root, line.commit).catch(() => undefined),
-      this.git.commitStat(cache.root, line.commit).catch(() => undefined),
-      this.git.commitDiff(cache.root, line.commit, cache.relativePath).catch(() => undefined),
-    ]).then(([details, stat, diff]) => ({ details, stat, diff }));
-    this.hoverCache.set(key, promise);
-    return promise;
-  }
-
-  public async provideHover(
-    document: vscode.TextDocument,
-    position: vscode.Position,
-  ): Promise<vscode.Hover | undefined> {
-    const line = this.line(document, position.line);
-    if (!line) return undefined;
-    const cache = this.cache.get(document.uri.toString());
-    if (!cache || cache.version !== document.version) return undefined;
-
-    const markdown = new vscode.MarkdownString();
-    markdown.appendMarkdown(`**${markdownText(blameAuthor(line))}** · ${markdownText(blameDate(line.authorTime))} (${markdownText(blameFullDate(line.authorTime))})\n\n`);
-    const sourceLine = document.lineAt(position.line).text;
-
-    if (isUncommitted(line.commit)) {
-      markdown.appendMarkdown("**Working tree change**\n\n");
-      markdown.appendCodeblock(`+ ${sourceLine}`, "diff");
-      return new vscode.Hover(markdown, new vscode.Range(position.line, 0, position.line, sourceLine.length));
-    }
-
-    const info = await this.hoverInfo(cache, line);
-    const details = info.details;
-    const subject = details?.subject || line.summary || "(no commit message)";
-    markdown.appendMarkdown(`**${markdownText(subject)}**\n\n`);
-    const body = details?.body || "";
-    const rest = body.split(/\r?\n/).slice(1).join("\n").trim();
-    if (rest) markdown.appendText(`${rest}\n\n`);
-
-    const shortHash = line.commit.slice(0, 10);
-    markdown.appendMarkdown(`\`${shortHash}\` · ${markdownText(cache.relativePath)}\n\n`);
-    markdown.appendMarkdown(`**Changes in ${shortHash}**\n\n`);
-    markdown.appendCodeblock(diffSnippet(info.diff, sourceLine), "diff");
-    const summary = statSummary(info.stat);
-    if (summary) markdown.appendMarkdown(`\n**${markdownText(summary)}**\n\n`);
-    markdown.appendMarkdown(commitLink(line.commit));
-    markdown.isTrusted = { enabledCommands: ["vvgit.showCommitMessage"] };
-
-    return new vscode.Hover(markdown, new vscode.Range(position.line, 0, position.line, sourceLine.length));
-  }
 }
 
-export class BlameHoverProvider implements vscode.HoverProvider {
-  constructor(private readonly controller: InlineBlameController) {}
-
-  public provideHover(
-    document: vscode.TextDocument,
-    position: vscode.Position,
-  ): vscode.ProviderResult<vscode.Hover> {
-    return this.controller.provideHover(document, position);
-  }
-}
-
-/** Opens a narrow, line-aligned blame editor on the left of the real source editor. */
-export class BlameSidecarController implements vscode.Disposable {
+/** Full-file blame annotations rendered in the editor's left annotation column. */
+export class FileBlameController implements vscode.Disposable {
+  private readonly decoration: vscode.TextEditorDecorationType;
+  private readonly compactDecoration: vscode.TextEditorDecorationType;
   private readonly disposables: vscode.Disposable[] = [];
-  private session: BlameSidecarSession | undefined;
+  private readonly cache = new Map<string, BlameCacheEntry>();
+  private readonly hoverCache = new Map<string, Promise<CommitHoverInfo>>();
   private refreshTimer: NodeJS.Timeout | undefined;
-  private syncing = false;
+  private activeUri: string | undefined;
+  private lastEditor: vscode.TextEditor | undefined;
+  private requestId = 0;
 
-  constructor(
-    private readonly git: GitService,
-    private readonly documents: GitDocumentProvider,
-  ) {
+  constructor(private readonly git: GitService) {
+    this.decoration = vscode.window.createTextEditorDecorationType({
+      rangeBehavior: vscode.DecorationRangeBehavior.OpenOpen,
+      before: fileBlameBefore(true),
+    });
+    this.compactDecoration = vscode.window.createTextEditorDecorationType({
+      rangeBehavior: vscode.DecorationRangeBehavior.OpenOpen,
+      before: fileBlameBefore(false),
+    });
     this.disposables.push(
+      vscode.window.onDidChangeActiveTextEditor((editor) => {
+        const uri = editor?.document.uri.toString();
+        // Native decorations stay attached to their editor while the user
+        // visits another tab. Re-apply them when a split editor for the same
+        // document becomes active, just as GitLens does.
+        if (editor && this.activeUri && uri === this.activeUri) {
+          this.lastEditor = editor;
+          const cache = this.cache.get(this.activeUri);
+          if (cache?.version === editor.document.version) this.render(editor, cache);
+        }
+      }),
+      vscode.window.onDidChangeVisibleTextEditors((editors) => {
+        if (!this.activeUri) return;
+        const cache = this.cache.get(this.activeUri);
+        if (!cache) return;
+        for (const editor of editors) {
+          if (editor.document.uri.toString() === this.activeUri && cache.version === editor.document.version) {
+            this.lastEditor = editor;
+            this.render(editor, cache);
+          }
+        }
+      }),
       vscode.workspace.onDidChangeTextDocument((event) => {
-        if (this.session?.sourceUri.toString() !== event.document.uri.toString()) return;
-        this.scheduleRefresh();
-      }),
-      vscode.window.onDidChangeTextEditorSelection((event) => {
-        const session = this.session;
-        if (!session) return;
-        if (event.textEditor.document.uri.toString() === session.sourceUri.toString()) {
-          this.reveal(this.sidecarEditor(), event.selections[0]?.active.line ?? 0);
-        } else if (event.textEditor.document.uri.toString() === session.blameUri.toString()) {
-          this.reveal(this.sourceEditor(), event.selections[0]?.active.line ?? 0);
-        }
-      }),
-      vscode.window.onDidChangeTextEditorVisibleRanges((event) => {
-        const session = this.session;
-        if (!session || !event.visibleRanges.length) return;
-        const uri = event.textEditor.document.uri.toString();
-        if (uri === session.sourceUri.toString()) {
-          this.reveal(this.sidecarEditor(), event.visibleRanges[0].start.line);
-        } else if (uri === session.blameUri.toString()) {
-          this.reveal(this.sourceEditor(), event.visibleRanges[0].start.line);
-        }
+        if (event.document.uri.toString() === this.activeUri) this.scheduleRefresh();
       }),
       vscode.workspace.onDidCloseTextDocument((document) => {
-        if (document.uri.toString() === this.session?.sourceUri.toString()
-          || document.uri.toString() === this.session?.blameUri.toString()) {
-          this.session = undefined;
-        }
+        if (document.uri.toString() === this.activeUri) this.clear();
+      }),
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration("vvgit.blame")) void this.refresh();
       }),
     );
   }
@@ -387,113 +461,150 @@ export class BlameSidecarController implements vscode.Disposable {
   public dispose(): void {
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     this.refreshTimer = undefined;
-    this.session = undefined;
+    this.clear();
+    this.decoration.dispose();
+    this.compactDecoration.dispose();
+    this.cache.clear();
+    this.hoverCache.clear();
     for (const disposable of this.disposables.splice(0)) disposable.dispose();
   }
 
+  public isShowing(document: vscode.TextDocument): boolean {
+    return this.activeUri === document.uri.toString();
+  }
+
+  public clear(): void {
+    const uri = this.activeUri;
+    const editors = new Set<vscode.TextEditor>();
+    if (this.lastEditor) editors.add(this.lastEditor);
+    for (const editor of vscode.window.visibleTextEditors) {
+      if (!uri || editor.document.uri.toString() === uri) editors.add(editor);
+    }
+    for (const editor of editors) {
+      try {
+        editor.setDecorations(this.decoration, []);
+        editor.setDecorations(this.compactDecoration, []);
+      } catch {
+        // The editor may have been disposed between the visible-editor event
+        // and this cleanup.
+      }
+    }
+    if (uri) this.cache.delete(uri);
+    this.activeUri = undefined;
+    this.lastEditor = undefined;
+    this.requestId += 1;
+  }
+
   public async open(
-    sourceDocument: vscode.TextDocument,
+    editor: vscode.TextEditor,
     root: string,
     relativePath: string,
   ): Promise<void> {
-    if (this.session?.sourceUri.toString() === sourceDocument.uri.toString()) {
-      await this.refresh();
-      const source = await this.showSource(sourceDocument);
-      this.reveal(this.sidecarEditor(), source.selection.active.line);
-      return;
+    this.clear();
+    this.activeUri = editor.document.uri.toString();
+    this.lastEditor = editor;
+    try {
+      await this.load(editor, root, relativePath);
+    } catch (error) {
+      this.clear();
+      throw error;
     }
-
-    const lines = await this.git.blame(root, relativePath);
-    const blameUri = this.documents.blameUri(relativePath);
-    this.documents.setBlameContent(blameUri, this.sidecarContent(lines, sourceDocument.lineCount));
-
-    const source = await vscode.window.showTextDocument(sourceDocument, {
-      viewColumn: vscode.ViewColumn.Two,
-      preview: false,
-      preserveFocus: false,
-    });
-    const blameDocument = await vscode.workspace.openTextDocument(blameUri);
-    const sidecar = await vscode.window.showTextDocument(blameDocument, {
-      viewColumn: vscode.ViewColumn.One,
-      preview: false,
-      preserveFocus: true,
-    });
-    sidecar.options = {
-      ...sidecar.options,
-      lineNumbers: vscode.TextEditorLineNumbersStyle.Off,
-    };
-    this.session = { sourceUri: sourceDocument.uri, root, relativePath, blameUri };
-    this.reveal(sidecar, source.selection.active.line);
-    await vscode.window.showTextDocument(sourceDocument, {
-      viewColumn: vscode.ViewColumn.Two,
-      preview: false,
-      preserveFocus: false,
-    });
   }
 
   public async refresh(): Promise<void> {
-    const session = this.session;
-    if (!session) return;
-    const sourceDocument = vscode.workspace.textDocuments.find(
-      (document) => document.uri.toString() === session.sourceUri.toString(),
+    if (!this.activeUri) return;
+    const editor = vscode.window.visibleTextEditors.find(
+      (candidate) => candidate.document.uri.toString() === this.activeUri,
     );
-    if (!sourceDocument) return;
+    if (!editor) return;
     try {
-      const lines = await this.git.blame(session.root, session.relativePath);
-      this.documents.setBlameContent(
-        session.blameUri,
-        this.sidecarContent(lines, sourceDocument.lineCount),
-      );
+      const root = await this.git.repositoryRoot(editor.document.uri);
+      const relativePath = this.git.relativePath(root, editor.document.uri);
+      await this.load(editor, root, relativePath);
     } catch {
-      // Keep the last useful blame view when Git is temporarily unavailable.
+      // Keep the last annotations while Git is temporarily unavailable.
     }
   }
 
-  public async refreshActive(): Promise<void> {
-    await this.refresh();
+  public async provideHover(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+  ): Promise<vscode.Hover | undefined> {
+    const cache = this.cache.get(document.uri.toString());
+    const line = cache?.version === document.version
+      ? cache.lines.find((item) => item.lineNumber === position.line)
+      : undefined;
+    if (!cache || !line) return undefined;
+    return makeBlameHover(this.git, this.hoverCache, cache, document, position, line);
   }
 
-  public activeRoot(): string | undefined {
-    const activeUri = vscode.window.activeTextEditor?.document.uri.toString();
-    return activeUri && activeUri === this.session?.blameUri.toString() ? this.session.root : undefined;
+  private async load(editor: vscode.TextEditor, root: string, relativePath: string): Promise<void> {
+    const requestId = ++this.requestId;
+    const maxLines = vscode.workspace.getConfiguration("vvgit").get<number>("blame.maxLineCount", 10_000);
+    if (editor.document.lineCount > maxLines) {
+      this.cache.delete(editor.document.uri.toString());
+      editor.setDecorations(this.decoration, []);
+      editor.setDecorations(this.compactDecoration, []);
+      return;
+    }
+    const lines = await this.git.blame(root, relativePath);
+    if (requestId !== this.requestId || editor.document.uri.toString() !== this.activeUri) return;
+    const cache: BlameCacheEntry = {
+      version: editor.document.version,
+      root,
+      relativePath,
+      lines,
+    };
+    this.lastEditor = editor;
+    this.cache.set(editor.document.uri.toString(), cache);
+    this.render(editor, cache);
   }
 
-  private async showSource(document: vscode.TextDocument): Promise<vscode.TextEditor> {
-    return vscode.window.showTextDocument(document, {
-      viewColumn: vscode.ViewColumn.Two,
-      preview: false,
-      preserveFocus: false,
-    });
-  }
+  private render(editor: vscode.TextEditor, cache: BlameCacheEntry): void {
+    const maxSummary = vscode.workspace.getConfiguration("vvgit.blame").get<number>("fileBlameSummaryMaxLength", 60);
+    const leaders: vscode.DecorationOptions[] = [];
+    const followers: vscode.DecorationOptions[] = [];
+    let previousCommit: string | undefined;
 
-  private sourceEditor(): vscode.TextEditor | undefined {
-    const session = this.session;
-    if (!session) return undefined;
-    return vscode.window.visibleTextEditors.find(
-      (editor) => editor.document.uri.toString() === session.sourceUri.toString()
-        && editor.viewColumn === vscode.ViewColumn.Two,
-    ) || vscode.window.visibleTextEditors.find(
-      (editor) => editor.document.uri.toString() === session.sourceUri.toString(),
-    );
-  }
+    for (const line of cache.lines) {
+      if (line.lineNumber < 0 || line.lineNumber >= editor.document.lineCount) {
+        previousCommit = undefined;
+        continue;
+      }
 
-  private sidecarEditor(): vscode.TextEditor | undefined {
-    const session = this.session;
-    if (!session) return undefined;
-    return vscode.window.visibleTextEditors.find(
-      (editor) => editor.document.uri.toString() === session.blameUri.toString(),
-    );
-  }
+      const summary = line.summary.length > maxSummary
+        ? `${line.summary.slice(0, Math.max(1, maxSummary - 1))}…`
+        : line.summary;
+      const hash = isUncommitted(line.commit) ? "working" : line.commit.slice(0, 10);
+      const text = `${blameAuthor(line)} · ${blameDate(line.authorTime)} · ${summary} · ${hash}`;
+      const range = lineStartRange(line.lineNumber);
 
-  private reveal(editor: vscode.TextEditor | undefined, line: number): void {
-    if (!editor || this.syncing || editor.document.lineCount === 0) return;
-    const targetLine = Math.min(Math.max(0, line), editor.document.lineCount - 1);
-    this.syncing = true;
-    editor.revealRange(
-      new vscode.Range(targetLine, 0, targetLine, 0),
-      vscode.TextEditorRevealType.InCenterIfOutsideViewport,
-    );
-    setTimeout(() => { this.syncing = false; }, 0);
+      // Like GitLens, repeat a commit only at the start of its contiguous
+      // block. Followers retain the fixed-width column without visual noise.
+      if (previousCommit === line.commit) {
+        followers.push({
+          range,
+          renderOptions: { before: { contentText: "\u00a0" } },
+        });
+      } else {
+        leaders.push({
+          range,
+          renderOptions: {
+            before: {
+              contentText: text,
+              color: isUncommitted(line.commit)
+                ? new vscode.ThemeColor("vvgit.fileBlameUncommittedForeground")
+                : undefined,
+              textDecoration: "overline solid rgba(0, 0, 0, .2)",
+            },
+          },
+        });
+      }
+      previousCommit = line.commit;
+    }
+
+    editor.setDecorations(this.decoration, leaders);
+    editor.setDecorations(this.compactDecoration, followers);
   }
 
   private scheduleRefresh(): void {
@@ -503,23 +614,20 @@ export class BlameSidecarController implements vscode.Disposable {
       void this.refresh();
     }, 250);
   }
+}
 
-  private sidecarContent(lines: BlameLine[], sourceLineCount: number): string {
-    const maxSummary = vscode.workspace.getConfiguration("vvgit.blame").get<number>("sidecarSummaryMaxLength", 80);
-    const output: string[] = [];
-    for (let index = 0; index < sourceLineCount; index++) {
-      const line = lines[index];
-      if (!line) {
-        output.push("—");
-        continue;
-      }
-      const summary = line.summary.length > maxSummary
-        ? `${line.summary.slice(0, Math.max(1, maxSummary - 1))}…`
-        : line.summary;
-      const hash = isUncommitted(line.commit) ? "working" : line.commit.slice(0, 10);
-      output.push(`${blameAuthor(line)} · ${blameDate(line.authorTime)} · ${summary} · ${hash}`);
-    }
-    return output.join("\n");
+export class BlameHoverProvider implements vscode.HoverProvider {
+  constructor(
+    private readonly inline: InlineBlameController,
+    private readonly file: FileBlameController,
+  ) {}
+
+  public async provideHover(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+  ): Promise<vscode.Hover | undefined> {
+    return (await this.inline.provideHover(document, position))
+      || this.file.provideHover(document, position);
   }
 }
 

@@ -1,8 +1,8 @@
 {
   "name": "vvgit",
   "displayName": "VV Git",
-  "description": "Fast, focused Git blame, history, diff, comparison, and squash-to-patch tools for VS Code.",
-  "version": "0.2.0",
+  "description": "Fast, focused Git blame, history, diff, comparison, merge, and squash-to-patch tools for VS Code.",
+  "version": "0.3.0",
   "publisher": "VictorChen",
   "license": "MIT",
   "pricing": "Free",
@@ -25,6 +25,7 @@
     "commit",
     "history",
     "branch",
+    "merge",
     "squash",
     "format-patch",
     "lightweight"
@@ -49,6 +50,7 @@
     "onCommand:vvgit.showBranchLog",
     "onCommand:vvgit.compareCommits",
     "onCommand:vvgit.compareBranches",
+    "onCommand:vvgit.mergeBranchToBranch",
     "onCommand:vvgit.squashBranchToBranch",
     "onCommand:vvgit.showBranches",
     "onCommand:vvgit.refreshBlame"
@@ -64,7 +66,7 @@
       },
       {
         "command": "vvgit.blameFile",
-        "title": "VV Git: Blame Current File",
+        "title": "VV Git: Toggle File Blame",
         "category": "VV Git",
         "icon": "$(debug-alt)",
         "enablement": "resourceScheme == file"
@@ -113,6 +115,12 @@
         "icon": "$(git-compare)"
       },
       {
+        "command": "vvgit.mergeBranchToBranch",
+        "title": "VV Git: Merge Branch to Branch",
+        "category": "VV Git",
+        "icon": "$(git-merge)"
+      },
+      {
         "command": "vvgit.squashBranchToBranch",
         "title": "VV Git: Squash Branch to Branch + Create Patch",
         "category": "VV Git",
@@ -150,43 +158,48 @@
         },
         {
           "command": "vvgit.showCommitMessage",
-          "when": "resourceScheme == file || resourceScheme == vvgit-blame",
+          "when": "resourceScheme == file",
           "group": "navigation@53"
         },
         {
           "command": "vvgit.searchLog",
-          "when": "resourceScheme == file || resourceScheme == vvgit-blame",
+          "when": "resourceScheme == file",
           "group": "navigation@54"
         },
         {
           "command": "vvgit.compareCommits",
-          "when": "resourceScheme == file || resourceScheme == vvgit-blame",
+          "when": "resourceScheme == file",
           "group": "navigation@55"
         },
         {
           "command": "vvgit.showBranches",
-          "when": "resourceScheme == file || resourceScheme == vvgit-blame",
+          "when": "resourceScheme == file",
           "group": "navigation@56"
         },
         {
           "command": "vvgit.compareBranches",
-          "when": "resourceScheme == file || resourceScheme == vvgit-blame",
+          "when": "resourceScheme == file",
           "group": "navigation@57"
         },
         {
-          "command": "vvgit.squashBranchToBranch",
-          "when": "resourceScheme == file || resourceScheme == vvgit-blame",
+          "command": "vvgit.mergeBranchToBranch",
+          "when": "resourceScheme == file",
           "group": "navigation@58"
         },
         {
-          "command": "vvgit.showRepositoryDiff",
-          "when": "resourceScheme == file || resourceScheme == vvgit-blame",
+          "command": "vvgit.squashBranchToBranch",
+          "when": "resourceScheme == file",
           "group": "navigation@59"
         },
         {
-          "command": "vvgit.refreshBlame",
-          "when": "resourceScheme == file || resourceScheme == vvgit-blame",
+          "command": "vvgit.showRepositoryDiff",
+          "when": "resourceScheme == file",
           "group": "navigation@60"
+        },
+        {
+          "command": "vvgit.refreshBlame",
+          "when": "resourceScheme == file",
+          "group": "navigation@61"
         }
       ],
       "editor/context": [
@@ -251,6 +264,35 @@
         "when": "editorTextFocus"
       }
     ],
+    "colors": [
+      {
+        "id": "vvgit.fileBlameBackground",
+        "description": "Background color of the VV Git file-blame annotation column.",
+        "defaults": {
+          "dark": "#FFFFFF13",
+          "light": "#0000000C",
+          "highContrast": "#FFFFFF13"
+        }
+      },
+      {
+        "id": "vvgit.fileBlameForeground",
+        "description": "Foreground color of the VV Git file-blame annotation column.",
+        "defaults": {
+          "dark": "#BEBEBE",
+          "light": "#747474",
+          "highContrast": "#BEBEBE"
+        }
+      },
+      {
+        "id": "vvgit.fileBlameUncommittedForeground",
+        "description": "Foreground color of uncommitted VV Git file-blame annotations.",
+        "defaults": {
+          "dark": "#00BCF299",
+          "light": "#00BCF299",
+          "highContrast": "#00BCF2FF"
+        }
+      }
+    ],
     "configuration": {
       "title": "VV Git",
       "properties": {
@@ -293,12 +335,12 @@
           "default": 72,
           "description": "Maximum commit subject length shown after the cursor line."
         },
-        "vvgit.blame.sidecarSummaryMaxLength": {
+        "vvgit.blame.fileBlameSummaryMaxLength": {
           "type": "number",
           "minimum": 20,
           "maximum": 240,
-          "default": 80,
-          "description": "Maximum commit subject length shown in the left blame pane."
+          "default": 60,
+          "description": "Maximum commit subject length shown in the left file-blame annotation column."
         },
         "vvgit.log.maxCommits": {
           "type": "number",
