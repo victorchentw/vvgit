@@ -25,7 +25,8 @@ export class GitDocumentProvider implements vscode.TextDocumentContentProvider, 
     _token: vscode.CancellationToken,
   ): vscode.ProviderResult<string> {
     if (uri.scheme === "vvgit-diff") {
-      return this.diffDocuments.get(uri.path.split("/").pop() || "") || "";
+      const id = uri.path.match(/^\/diff\/([^/]+)/)?.[1] || "";
+      return this.diffDocuments.get(id) || "";
     }
 
     const payload = this.payload(uri);
@@ -45,16 +46,20 @@ export class GitDocumentProvider implements vscode.TextDocumentContentProvider, 
     return this.payloadUri("vvgit-worktree", { root, ref: "", relativePath });
   }
 
-  public diffUri(content: string): vscode.Uri {
+  public diffUri(content: string, displayName?: string): vscode.Uri {
     const id = `${Date.now().toString(36)}-${(++this.sequence).toString(36)}`;
     this.diffDocuments.set(id, content);
     // Keep the provider bounded when a user repeatedly compares large refs.
+    // Documents already opened by VS Code retain their loaded content.
     while (this.diffDocuments.size > 5) {
       const first = this.diffDocuments.keys().next().value;
       if (!first) break;
       this.diffDocuments.delete(first);
     }
-    return vscode.Uri.parse(`vvgit-diff:/diff/${id}`);
+    const suffix = displayName?.trim()
+      ? `/${displayName.trim().replace(/\\/g, "/").replace(/^\/+/, "")}`
+      : "";
+    return vscode.Uri.from({ scheme: "vvgit-diff", path: `/diff/${id}${suffix}` });
   }
 
   private payloadUri(scheme: string, payload: SnapshotPayload): vscode.Uri {

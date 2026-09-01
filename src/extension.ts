@@ -35,8 +35,7 @@ interface CommitFilePickItem extends vscode.QuickPickItem {
   file: CommitFile;
 }
 
-type CommitAction = "message" | "patch" | "filePatch" | "files" | "copyHash" | "squash";
-
+type CommitAction = "message" | "patch" | "filePatch" | "allPatches" | "files" | "copyHash" | "squash";
 interface CommitActionPickItem extends vscode.QuickPickItem {
   action: CommitAction;
 }
@@ -529,8 +528,12 @@ export function activate(context: vscode.ExtensionContext): void {
     await fileBlame.open(editor, target.root, target.relativePath);
   };
 
-  const openDiffDocument = async (content: string, title: string): Promise<void> => {
-    const uri = documents.diffUri(content);
+  const openDiffDocument = async (
+    content: string,
+    title: string,
+    displayName?: string,
+  ): Promise<void> => {
+    const uri = documents.diffUri(content, displayName);
     const document = await vscode.workspace.openTextDocument(uri);
     await vscode.languages.setTextDocumentLanguage(document, "diff");
     await vscode.window.showTextDocument(document, { preview: false });
@@ -602,6 +605,44 @@ export function activate(context: vscode.ExtensionContext): void {
     await openDiffDocument(patch, `VV Git · ${revision.slice(0, 10)}${suffix}`);
   };
 
+  const showCommitPatches = async (root: string, revision: string): Promise<void> => {
+    const files = await git.commitFiles(root, revision);
+    if (!files.length) {
+      vscode.window.showInformationMessage(`No changed files were found for ${revision}.`);
+      return;
+    }
+
+    let opened = 0;
+    const skipped: string[] = [];
+    for (const file of files) {
+      const patch = await git.commitPatch(root, revision, file.path).catch(() => "");
+      if (!patch.trim()) {
+        skipped.push(file.path);
+        continue;
+      }
+      await openDiffDocument(
+        patch,
+        `VV Git · ${revision.slice(0, 10)} · ${file.path}`,
+        `${file.path}_diff`,
+      );
+      opened += 1;
+    }
+
+    if (!opened) {
+      vscode.window.showInformationMessage(`No file patches were found for ${revision}.`);
+      return;
+    }
+    if (skipped.length) {
+      vscode.window.showWarningMessage(
+        `Opened ${opened} file patch${opened === 1 ? "" : "es"}; skipped ${skipped.join(", ")}.`,
+      );
+    } else {
+      vscode.window.showInformationMessage(
+        `Opened ${opened} individual file patch${opened === 1 ? "" : "es"}.`,
+      );
+    }
+  };
+
   const showCommitActions = async (root: string, revision: string): Promise<void> => {
     const details = await git.commit(root, revision);
     const stat = await git.commitStat(root, revision).catch(() => "");
@@ -624,6 +665,12 @@ export function activate(context: vscode.ExtensionContext): void {
         description: "Choose one changed file and open its patch",
         detail: "Select a file after pressing Enter",
         action: "filePatch",
+      },
+      {
+        label: "$(diff) Show patch for all files",
+        description: "Open one diff document per changed file",
+        detail: "Each tab is named <original filename>_diff",
+        action: "allPatches",
       },
       {
         label: "$(list-unordered) Show changed files",
@@ -683,6 +730,9 @@ export function activate(context: vscode.ExtensionContext): void {
         if (file) await showCommitPatch(root, revision, file);
         break;
       }
+      case "allPatches":
+        await showCommitPatches(root, revision);
+        break;
       case "files":
         await showCommitFiles(root, revision);
         break;

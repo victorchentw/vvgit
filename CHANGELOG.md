@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.7
+
+- Adds `Show patch for all files`, opening one VS Code diff document per changed file with `<filename>_diff` tab names.
+
 ## 0.3.6
 
 - Fixes commit file parsing so search and branch-log actions can list changed files and open a selected file's patch.
