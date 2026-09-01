@@ -136,7 +136,9 @@ export function blameAuthor(line: BlameLine): string {
 
 function commandLink(command: string, args: unknown[], label: string): string {
   const uri = `command:${command}?${encodeURIComponent(JSON.stringify(args))}`;
-  return `[${label}](${uri})`;
+  // Escape the brackets inside the Markdown link label so the rendered hover
+  // visibly shows each action as `[Diff]`, `[Merge]`, and so on.
+  return `[\\[${label}\\]](${uri})`;
 }
 
 function commitActions(line: BlameLine): string {
@@ -156,7 +158,7 @@ function commitActions(line: BlameLine): string {
     );
   }
 
-  return actions.join("  ·  ");
+  return actions.join("  ");
 }
 
 function statSummary(stat: string | undefined): string | undefined {
@@ -584,7 +586,16 @@ export class FileBlameController implements vscode.Disposable {
       if (previousCommit === line.commit) {
         followers.push({
           range,
-          renderOptions: { before: { contentText: "\u00a0" } },
+          renderOptions: {
+            before: {
+              // Keep the commit visible on long blocks while the indentation
+              // makes it clear that this is a continuation of the same blame.
+              contentText: `\u00a0\u00a0${text}`,
+              color: isUncommitted(line.commit)
+                ? new vscode.ThemeColor("vvgit.fileBlameUncommittedForeground")
+                : undefined,
+            },
+          },
         });
       } else {
         leaders.push({

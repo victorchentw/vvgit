@@ -431,14 +431,16 @@ export function activate(context: vscode.ExtensionContext): void {
   const mergeBranchToBranch = async (): Promise<void> => {
     const root = await repositoryRoot();
     const localBranches = (await git.branches(root)).filter((branch) => !branch.isRemote);
-    if (localBranches.length < 2) {
-      vscode.window.showInformationMessage("A branch merge needs at least two local branches.");
+    if (!localBranches.length) {
+      vscode.window.showInformationMessage("A branch merge needs at least one local target branch.");
       return;
     }
 
-    const source = await pickBranch(root, "Select the source branch to merge", true);
+    // The target must be local because VV Git checks it out and commits on it;
+    // the source may also be a remote-tracking branch.
+    const source = await pickBranch(root, "Select the source branch to merge");
     if (!source) return;
-    const target = await pickBranch(root, "Select the target branch to receive the merge", true);
+    const target = await pickBranch(root, "Select the local target branch to receive the merge", true);
     if (!target) return;
     if (source === target) {
       vscode.window.showErrorMessage("Source and target branches must be different.");
@@ -501,14 +503,16 @@ export function activate(context: vscode.ExtensionContext): void {
   const squashBranchToBranch = async (): Promise<void> => {
     const root = await repositoryRoot();
     const localBranches = (await git.branches(root)).filter((branch) => !branch.isRemote);
-    if (localBranches.length < 2) {
-      vscode.window.showInformationMessage("Squash merge needs at least two local branches.");
+    if (!localBranches.length) {
+      vscode.window.showInformationMessage("A squash merge needs at least one local target branch.");
       return;
     }
 
-    const source = await pickBranch(root, "Select the source branch to squash", true);
+    // A remote-tracking branch is a valid source ref, while the target must be
+    // local so the squash commit can be created on it.
+    const source = await pickBranch(root, "Select the source branch to squash");
     if (!source) return;
-    const target = await pickBranch(root, "Select the target branch to receive the squash", true);
+    const target = await pickBranch(root, "Select the local target branch to receive the squash", true);
     if (!target) return;
     if (source === target) {
       vscode.window.showErrorMessage("Source and target branches must be different.");

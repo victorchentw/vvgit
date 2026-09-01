@@ -7,6 +7,7 @@
 - Removes diff previews and the `Changes in ...` section from blame hovers to keep them readable.
 - Adds hover actions for commit message, diff, compare, history search, file blame, branches, merge, and squash + patch.
 - Adds a guarded branch-to-branch merge command and fixes squash commit creation to invoke `git commit` correctly.
+- Keeps commit metadata visible on continued blame blocks with indentation, brackets hover actions clearly, and permits remote-tracking source refs when the target is local.
 
 ## 0.2.0
 

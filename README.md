@@ -30,8 +30,8 @@ Open a Git workspace. Inline blame is enabled by default and appears only on the
 - **Commit comparison** — Quickly compare two commits, branches, tags, or other Git references in a read-only diff editor.
 - **Commit-message search** — Search all reachable history by ticket number, keyword, or phrase.
 - **Branch browsing** — Pick a local/remote branch and browse its recent log.
-- **Merge branch to branch** — Select a source and target branch; VV Git checks out the target and creates a confirmed `--no-ff` merge commit.
-- **Squash branch to branch + patch** — Select source `BIA-222` and target `dev`; VV Git checks out `dev`, performs a squash merge, creates the commit, and writes `git format-patch -1 BIA-222 --stdout` to a patch file.
+- **Merge branch to branch** — Select a source (local or remote-tracking) and local target branch; VV Git checks out the target and creates a confirmed `--no-ff` merge commit.
+- **Squash branch to branch + patch** — Select source `BIA-222` and local target `dev`; VV Git checks out `dev`, performs a squash merge, creates the commit, and writes `git format-patch -1 BIA-222 --stdout` to a patch file.
 - **Lightweight by design** — No GitHub account, background service, repository database, graph renderer, or bundled Git implementation. Commands run only when needed.
 
 ### Squash example
@@ -60,8 +60,8 @@ Open the Command Palette (`Ctrl/Cmd+Shift+P`) and search for **VV Git**:
 | `Browse Branch Log` | Browse commits on a selected branch. |
 | `Compare Commits or References` | Compare two commits, branches, tags, or refs. |
 | `Compare Branches` | Compare two branches directly. |
-| `Merge Branch to Branch` | Merge a source branch into a target with a merge commit. |
-| `Squash Branch to Branch + Create Patch` | Squash a source branch into a target and create `format-patch -1`. |
+| `Merge Branch to Branch` | Merge a local or remote-tracking source into a local target with a merge commit. |
+| `Squash Branch to Branch + Create Patch` | Squash a source branch into a local target and create `format-patch -1`. |
 | `Browse Branches` | Pick a branch and open its recent log. |
 
 The file actions are available from the editor title bar, editor context menu, and Explorer context menu. History search, commit/reference comparison, branch browsing, repository diff, merge, and squash-to-patch are also available as compact Git buttons in the editor title bar.
