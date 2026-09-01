@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.4
+
+- Adds `Squash to branch` to search-result and floating blame commit actions; it squashes history through the selected commit into a local target branch.
+- Uses `<source-branch>.squash.patch` as the default branch-to-branch squash patch filename.
+
+## 0.3.3
+
+- Makes commit-message search update dynamically while typing, including backspace edits after a search has started.
+- Keeps search actions available from floating blame hovers and adds commit patch inspection after selection.
+
 ## 0.3.2
 
 - Adds an active commit-message preview to search and branch-log quick picks.

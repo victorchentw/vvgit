@@ -2,7 +2,7 @@
   "name": "vvgit",
   "displayName": "VV Git",
   "description": "Fast, focused Git blame, history, diff, comparison, merge, and squash-to-patch tools for VS Code.",
-  "version": "0.3.2",
+  "version": "0.3.4",
   "publisher": "VictorChen",
   "license": "MIT",
   "pricing": "Free",
@@ -52,6 +52,7 @@
     "onCommand:vvgit.compareBranches",
     "onCommand:vvgit.mergeBranchToBranch",
     "onCommand:vvgit.squashBranchToBranch",
+    "onCommand:vvgit.squashCommitToBranch",
     "onCommand:vvgit.showBranches",
     "onCommand:vvgit.refreshBlame"
   ],
@@ -123,6 +124,12 @@
       {
         "command": "vvgit.squashBranchToBranch",
         "title": "VV Git: Squash Branch to Branch + Create Patch",
+        "category": "VV Git",
+        "icon": "$(git-merge)"
+      },
+      {
+        "command": "vvgit.squashCommitToBranch",
+        "title": "VV Git: Squash Commit to Branch",
         "category": "VV Git",
         "icon": "$(git-merge)"
       },

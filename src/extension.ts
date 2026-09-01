@@ -35,7 +35,7 @@ interface CommitFilePickItem extends vscode.QuickPickItem {
   file: CommitFile;
 }
 
-type CommitAction = "message" | "patch" | "filePatch" | "files" | "copyHash";
+type CommitAction = "message" | "patch" | "filePatch" | "files" | "copyHash" | "squash";
 
 interface CommitActionPickItem extends vscode.QuickPickItem {
   action: CommitAction;
@@ -44,6 +44,9 @@ interface CommitActionPickItem extends vscode.QuickPickItem {
 interface BranchPickItem extends vscode.QuickPickItem {
   branch: BranchInfo;
 }
+
+const SEARCH_START_LENGTH = 4;
+const SEARCH_CONTINUE_LENGTH = 3;
 
 function dateLabel(value: string): string {
   const date = new Date(value);
@@ -296,6 +299,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const previewCache = new Map<string, string>();
 
       const setPreview = (item: CommitPickItem, preview: string): void => {
+        if (item.detail === preview) return;
         item.detail = preview;
         picker.items = [...currentItems];
       };
@@ -339,6 +343,145 @@ export function activate(context: vscode.ExtensionContext): void {
       picker.onDidHide(() => finish(undefined));
       picker.show();
       if (items.length) picker.activeItems = [items[0]];
+    });
+  };
+
+  const pickCommitSearch = async (
+    root: string,
+    initialQuery?: string,
+  ): Promise<string | undefined> => {
+    return new Promise<string | undefined>((resolve) => {
+      const picker = vscode.window.createQuickPick<CommitPickItem>();
+      picker.placeholder = "Search commit messages (4 or more characters to start)";
+      picker.prompt = "Type to search; focus a result to preview its message below";
+      picker.matchOnDescription = true;
+      picker.matchOnDetail = true;
+      picker.keepScrollPosition = true;
+      picker.ignoreFocusOut = false;
+
+      let currentItems: CommitPickItem[] = [];
+      let settled = false;
+      let searchTimer: NodeJS.Timeout | undefined;
+      let searchRequest = 0;
+      let searchStarted = false;
+      let previewRequest = 0;
+      const previewCache = new Map<string, string>();
+
+      const setPreview = (item: CommitPickItem, preview: string): void => {
+        if (!currentItems.some((candidate) => candidate.ref === item.ref) || item.detail === preview) return;
+        item.detail = preview;
+        picker.items = [...currentItems];
+      };
+
+      const loadPreview = async (active: readonly CommitPickItem[]): Promise<void> => {
+        const item = active[0];
+        if (!item || settled) return;
+        const cached = previewCache.get(item.ref);
+        if (cached) {
+          setPreview(item, cached);
+          return;
+        }
+
+        const request = ++previewRequest;
+        const details = await git.commit(root, item.ref).catch(() => undefined);
+        if (settled || request !== previewRequest) return;
+        const preview = details ? commitPreview(details) : "Commit preview is unavailable";
+        previewCache.set(item.ref, preview);
+        setPreview(item, preview);
+      };
+
+      const makeItems = (commits: CommitSummary[]): CommitPickItem[] => commits.map((commit) => ({
+        label: `$(git-commit) ${commit.shortHash} ${commit.subject}`,
+        description: `${commit.author} · ${dateLabel(commit.date)}`,
+        detail: "Focus this commit to preview its full message",
+        ref: commit.hash,
+        commit,
+      }));
+
+      const runSearch = async (query: string, request: number): Promise<void> => {
+        let commits: CommitSummary[];
+        try {
+          commits = await git.log(root, {
+            grep: query,
+            max: vscode.workspace.getConfiguration("vvgit").get<number>("log.maxCommits", 250),
+          });
+        } catch {
+          if (settled || request !== searchRequest) return;
+          currentItems = [];
+          picker.items = [];
+          picker.busy = false;
+          picker.prompt = "Unable to search commit messages";
+          return;
+        }
+
+        if (settled || request !== searchRequest || picker.value.trim() !== query) return;
+        previewRequest += 1;
+        currentItems = makeItems(commits);
+        picker.items = currentItems;
+        picker.busy = false;
+        picker.prompt = commits.length
+          ? `Focus a result to preview its message · ${commits.length} match${commits.length === 1 ? "" : "es"}`
+          : `No commits matched “${query}”`;
+        if (currentItems.length) picker.activeItems = [currentItems[0]];
+      };
+
+      const scheduleSearch = (value: string): void => {
+        if (searchTimer) clearTimeout(searchTimer);
+        const query = value.trim();
+        const request = ++searchRequest;
+        previewRequest += 1;
+
+        const canSearch = query.length >= SEARCH_START_LENGTH
+          || (searchStarted && query.length >= SEARCH_CONTINUE_LENGTH);
+        if (query.length >= SEARCH_START_LENGTH) searchStarted = true;
+        if (!canSearch) {
+          currentItems = [];
+          picker.items = [];
+          picker.activeItems = [];
+          picker.busy = false;
+          picker.prompt = searchStarted
+            ? `Type at least ${SEARCH_CONTINUE_LENGTH} characters to continue searching`
+            : `Type at least ${SEARCH_START_LENGTH} characters to search`;
+          return;
+        }
+
+        currentItems = [];
+        picker.items = [];
+        picker.activeItems = [];
+        picker.busy = true;
+        picker.prompt = `Searching commit messages for “${query}”…`;
+        searchTimer = setTimeout(() => {
+          searchTimer = undefined;
+          void runSearch(query, request);
+        }, 180);
+      };
+
+      const finish = (value: string | undefined): void => {
+        if (settled) return;
+        settled = true;
+        if (searchTimer) clearTimeout(searchTimer);
+        searchRequest += 1;
+        previewRequest += 1;
+        picker.hide();
+        picker.dispose();
+        resolve(value);
+      };
+
+      picker.onDidChangeValue(scheduleSearch);
+      picker.onDidChangeActive((active) => void loadPreview(active));
+      picker.onDidAccept(() => {
+        const selected = picker.selectedItems[0] || picker.activeItems[0];
+        finish(selected?.ref);
+      });
+      picker.onDidHide(() => finish(undefined));
+      picker.show();
+      const query = initialQuery?.trim() || "";
+      if (query) {
+        picker.value = query;
+        scheduleSearch(query);
+      } else {
+        picker.prompt = `Type at least ${SEARCH_START_LENGTH} characters to search`;
+      }
     });
   };
 
@@ -489,6 +632,12 @@ export function activate(context: vscode.ExtensionContext): void {
         action: "files",
       },
       {
+        label: "$(git-merge) Squash to branch",
+        description: "Merge this commit and all earlier commits into a local target",
+        detail: "Choose a target branch and create one squash commit",
+        action: "squash",
+      },
+      {
         label: "$(copy) Copy commit hash",
         description: details.hash || revision,
         detail: "Copy the full commit SHA to the clipboard",
@@ -536,6 +685,9 @@ export function activate(context: vscode.ExtensionContext): void {
       }
       case "files":
         await showCommitFiles(root, revision);
+        break;
+      case "squash":
+        await squashCommitToBranch(revision);
         break;
       case "copyHash":
         await vscode.env.clipboard.writeText(details.hash || revision);
@@ -628,23 +780,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const searchLog = async (initialQuery?: unknown): Promise<void> => {
     const root = await repositoryRoot();
-    const query = typeof initialQuery === "string" && initialQuery.trim()
-      ? initialQuery.trim()
-      : await vscode.window.showInputBox({
-        prompt: "Search Git commit messages",
-        placeHolder: "keyword, ticket number, or phrase",
-        ignoreFocusOut: false,
-      });
-    if (query === undefined) return;
-    const commits = await git.log(root, {
-      grep: query,
-      max: vscode.workspace.getConfiguration("vvgit").get<number>("log.maxCommits", 250),
-    });
-    if (!commits.length) {
-      vscode.window.showInformationMessage(`No commits matched “${query}”.`);
-      return;
-    }
-    const selected = await pickCommitFromList(root, commits, `Commits matching “${query}”`);
+    const query = typeof initialQuery === "string" ? initialQuery : undefined;
+    const selected = await pickCommitSearch(root, query);
     if (selected) await showCommitActions(root, selected);
   };
 
@@ -662,6 +799,98 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     const selected = await pickCommitFromList(root, commits, `Commits on ${branch}`);
     if (selected) await showCommitActions(root, selected);
+  };
+
+  const squashCommitToBranch = async (revisionArg?: unknown): Promise<void> => {
+    const root = await repositoryRoot();
+    const revision = typeof revisionArg === "string" && revisionArg.trim()
+      ? revisionArg.trim()
+      : await pickReference(root, "Select the commit to squash into a branch");
+    if (!revision) return;
+    if (/^0+$/.test(revision)) {
+      vscode.window.showInformationMessage("An uncommitted line cannot be squashed to a branch.");
+      return;
+    }
+
+    const selectedHash = await git.resolveCommit(root, revision);
+    const selectedCommit = await git.commit(root, selectedHash);
+    const localBranches = (await git.branches(root)).filter((branch) => !branch.isRemote);
+    if (!localBranches.length) {
+      vscode.window.showInformationMessage("Squash to branch needs a local target branch.");
+      return;
+    }
+
+    const target = await pickBranch(root, "Select the local target branch for the squash", true);
+    if (!target) return;
+    const ahead = await git.commitsAhead(root, target, selectedHash);
+    if (ahead < 1) {
+      vscode.window.showInformationMessage(
+        `${selectedCommit.shortHash || selectedHash.slice(0, 10)} has no commits ahead of ${target}.`,
+      );
+      return;
+    }
+
+    const commitMessage = await vscode.window.showInputBox({
+      prompt: `Commit message for squashing history through ${selectedCommit.shortHash || selectedHash.slice(0, 10)} into ${target}`,
+      value: selectedCommit.subject,
+      placeHolder: `Squash history through ${selectedCommit.shortHash || selectedHash.slice(0, 10)}`,
+      ignoreFocusOut: true,
+    });
+    if (commitMessage === undefined || !commitMessage.trim()) return;
+
+    const confirmation = await vscode.window.showWarningMessage(
+      `Squash ${ahead} commit(s) through ${selectedCommit.shortHash || selectedHash.slice(0, 10)} into ${target}?`,
+      {
+        modal: true,
+        detail: "This includes the selected commit and all earlier commits not already in the target branch.",
+      },
+      "Squash to branch",
+    );
+    if (confirmation !== "Squash to branch") return;
+
+    const status = await git.status(root);
+    if (status.trim()) {
+      throw new Error("The working tree is not clean. Commit or stash changes before a squash merge.");
+    }
+    const operation = await git.operationInProgress(root);
+    if (operation) {
+      throw new Error(`A Git ${operation} is already in progress. Finish or abort it before a squash merge.`);
+    }
+
+    const targetHead = await git.resolveCommit(root, target);
+    const originalBranch = await git.currentBranch(root);
+    const originalRef = originalBranch || await git.headHash(root);
+    let mergeStarted = false;
+    let committed = false;
+    let targetCheckedOut = originalBranch === target;
+
+    try {
+      if (!targetCheckedOut) {
+        await git.checkout(root, target);
+        targetCheckedOut = true;
+      }
+      mergeStarted = true;
+      await git.mergeSquash(root, selectedHash);
+      await git.createCommit(root, commitMessage.trim());
+      committed = true;
+    } catch (error) {
+      if (!committed && mergeStarted) {
+        await git.resetHard(root, targetHead).catch(() => undefined);
+      }
+      if (!committed && targetCheckedOut && originalRef && originalBranch !== target) {
+        await git.checkout(root, originalRef).catch(() => undefined);
+      }
+      throw error;
+    }
+
+    const newHead = await git.headHash(root);
+    output.appendLine(`Squash merged history through ${selectedHash} into ${target}`);
+    output.appendLine(`Commit: ${newHead}`);
+    output.show(true);
+    await refreshBranchStatus();
+    vscode.window.showInformationMessage(
+      `Squash merged history through ${selectedCommit.shortHash || selectedHash.slice(0, 10)} into ${target}.`,
+    );
   };
 
   const mergeBranchToBranch = async (): Promise<void> => {
@@ -775,12 +1004,12 @@ export function activate(context: vscode.ExtensionContext): void {
         ? path.normalize(configuredDirectory.trim())
         : path.resolve(root, configuredDirectory.trim())
       : root;
-    const defaultPatch = path.join(patchDirectory, `${branchFileName(source)}.format-patch-1.patch`);
+    const defaultPatch = path.join(patchDirectory, `${branchFileName(source)}.squash.patch`);
     const defaultPatchValue = path.relative(root, defaultPatch).split(path.sep).join("/") || defaultPatch;
     const patchInput = await vscode.window.showInputBox({
       prompt: "Where should the format-patch -1 file be written?",
       value: defaultPatchValue,
-      placeHolder: "patches/BIA-222.format-patch-1.patch",
+      placeHolder: "patches/BIA-222.squash.patch",
       ignoreFocusOut: true,
     });
     if (patchInput === undefined || !patchInput.trim()) return;
@@ -906,6 +1135,7 @@ export function activate(context: vscode.ExtensionContext): void {
   register("vvgit.compareBranches", "Unable to compare branches", compareBranches);
   register("vvgit.mergeBranchToBranch", "Unable to merge branches", mergeBranchToBranch);
   register("vvgit.squashBranchToBranch", "Unable to squash branches", squashBranchToBranch);
+  register("vvgit.squashCommitToBranch", "Unable to squash commit to branch", squashCommitToBranch);
   register("vvgit.showBranches", "Unable to browse branches", showBranchLog);
   register("vvgit.refreshBlame", "Unable to refresh blame", async () => {
     await blame.refresh(vscode.window.activeTextEditor);

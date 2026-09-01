@@ -22,6 +22,7 @@ const TRUSTED_COMMANDS = [
   "vvgit.showBranches",
   "vvgit.mergeBranchToBranch",
   "vvgit.squashBranchToBranch",
+  "vvgit.squashCommitToBranch",
 ];
 
 const MAX_SMALL_INTEGER = 2 ** 30 - 1;
@@ -147,10 +148,10 @@ function commitActions(line: BlameLine): string {
     commandLink("vvgit.blameFile", [], "File blame"),
     commandLink("vvgit.showBranches", [], "Branches"),
     commandLink("vvgit.mergeBranchToBranch", [], "Merge"),
-    commandLink("vvgit.squashBranchToBranch", [], "Squash + patch"),
   ];
 
   if (!isUncommitted(line.commit)) {
+    actions.push(commandLink("vvgit.squashCommitToBranch", [line.commit], "Squash to branch"));
     actions.unshift(
       commandLink("vvgit.showCommitMessage", [line.commit], "Commit message"),
       commandLink("vvgit.compareCommits", [line.commit], "Compare"),
