@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Changes the Git graph accent in the extension icon from purple to Git orange-red.
+
 ## 0.3.0
 
 - Changes full-file blame to an in-editor GitLens-style annotation column before source code, avoiding the awkward duplicate/terminal-like pane.
