@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.8
+
+- Applies the `<filename>_diff` virtual filename to single-file commit patch views as well as all-file views.
+
 ## 0.3.7
 
 - Adds `Show patch for all files`, opening one VS Code diff document per changed file with `<filename>_diff` tab names.

@@ -602,7 +602,11 @@ export function activate(context: vscode.ExtensionContext): void {
       return;
     }
     const suffix = file ? ` · ${file.path}` : " · all files";
-    await openDiffDocument(patch, `VV Git · ${revision.slice(0, 10)}${suffix}`);
+    await openDiffDocument(
+      patch,
+      `VV Git · ${revision.slice(0, 10)}${suffix}`,
+      file ? `${file.path}_diff` : undefined,
+    );
   };
 
   const showCommitPatches = async (root: string, revision: string): Promise<void> => {
