@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.5
+
+- Names branch-to-branch squash artifacts as `<source>_TO_<target>.patch` and uses that filename as the squash commit message.
+- Leaves merge conflicts in the checked-out target branch and tells the user to resolve and complete or reset the merge manually.
+
 ## 0.3.4
 
 - Adds `Squash to branch` to search-result and floating blame commit actions; it squashes history through the selected commit into a local target branch.

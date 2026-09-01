@@ -229,6 +229,10 @@ export class GitService {
     return this.run(["status", "--porcelain=v1", "--untracked-files=all"], root);
   }
 
+  public async hasConflicts(root: string): Promise<boolean> {
+    return !!(await this.run(["diff", "--name-only", "--diff-filter=U"], root)).trim();
+  }
+
   public async operationInProgress(root: string): Promise<string | undefined> {
     const operations: Array<[string, string]> = [
       ["MERGE_HEAD", "merge"],

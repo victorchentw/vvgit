@@ -801,6 +801,24 @@ export function activate(context: vscode.ExtensionContext): void {
     if (selected) await showCommitActions(root, selected);
   };
 
+  const leaveMergeConflictForUser = async (
+    root: string,
+    source: string,
+    target: string,
+    squash: boolean,
+  ): Promise<boolean> => {
+    if (!(await git.hasConflicts(root).catch(() => false))) return false;
+    const completion = squash
+      ? "Resolve the conflicts, stage the files, and commit the squash result, or reset the target branch manually."
+      : "Resolve the conflicts and complete the merge, or abort it manually.";
+    output.appendLine(`Merge conflict while applying ${source} into ${target}.`);
+    output.appendLine(completion);
+    output.show(true);
+    await refreshBranchStatus();
+    vscode.window.showErrorMessage(`Merge conflict while applying ${source} into ${target}. ${completion}`);
+    return true;
+  };
+
   const squashCommitToBranch = async (revisionArg?: unknown): Promise<void> => {
     const root = await repositoryRoot();
     const revision = typeof revisionArg === "string" && revisionArg.trim()
@@ -874,6 +892,7 @@ export function activate(context: vscode.ExtensionContext): void {
       await git.createCommit(root, commitMessage.trim());
       committed = true;
     } catch (error) {
+      if (await leaveMergeConflictForUser(root, selectedHash, target, true)) return;
       if (!committed && mergeStarted) {
         await git.resetHard(root, targetHead).catch(() => undefined);
       }
@@ -948,6 +967,7 @@ export function activate(context: vscode.ExtensionContext): void {
       mergeStarted = true;
       await git.merge(root, source);
     } catch (error) {
+      if (await leaveMergeConflictForUser(root, source, target, false)) return;
       if (mergeStarted) {
         await git.resetHard(root, targetHead).catch(() => undefined);
       }
@@ -989,14 +1009,8 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.window.showInformationMessage(`${source} has no commits ahead of ${target}.`);
       return;
     }
-    const sourceHead = await git.commit(root, source);
-    const commitMessage = await vscode.window.showInputBox({
-      prompt: `Commit message for squashing ${source} into ${target}`,
-      value: sourceHead.subject,
-      placeHolder: `Squash ${source} into ${target}`,
-      ignoreFocusOut: true,
-    });
-    if (commitMessage === undefined || !commitMessage.trim()) return;
+    const patchFileName = `${branchFileName(source)}_TO_${branchFileName(target)}.patch`;
+    const commitMessage = patchFileName;
 
     const configuredDirectory = vscode.workspace.getConfiguration("vvgit").get<string>("patchDirectory", "patches");
     const patchDirectory = configuredDirectory?.trim()
@@ -1004,12 +1018,12 @@ export function activate(context: vscode.ExtensionContext): void {
         ? path.normalize(configuredDirectory.trim())
         : path.resolve(root, configuredDirectory.trim())
       : root;
-    const defaultPatch = path.join(patchDirectory, `${branchFileName(source)}.squash.patch`);
+    const defaultPatch = path.join(patchDirectory, patchFileName);
     const defaultPatchValue = path.relative(root, defaultPatch).split(path.sep).join("/") || defaultPatch;
     const patchInput = await vscode.window.showInputBox({
       prompt: "Where should the format-patch -1 file be written?",
       value: defaultPatchValue,
-      placeHolder: "patches/BIA-222.squash.patch",
+      placeHolder: "patches/BIA-222_TO_dev.patch",
       ignoreFocusOut: true,
     });
     if (patchInput === undefined || !patchInput.trim()) return;
@@ -1028,7 +1042,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     const confirmation = await vscode.window.showWarningMessage(
       `Squash ${ahead} commit(s) from ${source} into ${target}? Git will check out ${target}, create a commit, and write a format-patch -1 file.`,
-      { modal: true, detail: `Patch: ${patchPath}` },
+      { modal: true, detail: `Commit message: ${commitMessage}\nPatch: ${patchPath}` },
       "Squash & create patch",
     );
     if (confirmation !== "Squash & create patch") return;
@@ -1063,6 +1077,7 @@ export function activate(context: vscode.ExtensionContext): void {
       committed = true;
       await writeAtomically(patchPath, patch);
     } catch (error) {
+      if (await leaveMergeConflictForUser(root, source, target, true)) return;
       if (!committed && mergeStarted) {
         await git.resetHard(root, targetHead).catch(() => undefined);
       }
@@ -1078,6 +1093,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const newHead = await git.headHash(root);
     output.appendLine(`Squash merged ${source} into ${target}`);
     output.appendLine(`Commit: ${newHead}`);
+    output.appendLine(`Commit message: ${commitMessage}`);
     output.appendLine(`Patch:  ${patchPath}`);
     output.show(true);
     await refreshBranchStatus();

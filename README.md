@@ -2,7 +2,7 @@
 
 A small, focused VS Code extension for Git blame, commit history, diffs, branch comparison, merge, and squash-to-patch workflows. **VV Git** uses the local `git` executable and native VS Code quick picks/editors instead of a large webview or a full repository graph.
 
-Current release: `0.3.4`
+Current release: `0.3.5`
 
 Repository: `git@github.com:victorchentw/vvgit.git`
 
@@ -13,7 +13,7 @@ Repository: `git@github.com:victorchentw/vvgit.git`
 Install from the VS Code Marketplace when published, or install a packaged `.vsix` file:
 
 ```bash
-code --install-extension vvgit-0.3.4.vsix
+code --install-extension vvgit-0.3.5.vsix
 ```
 
 Open a Git workspace. Inline blame is enabled by default and appears only on the active cursor line.
@@ -32,17 +32,17 @@ Open a Git workspace. Inline blame is enabled by default and appears only on the
 - **Commit-message search** — Search all reachable history by ticket number, keyword, or phrase as you type (starts at four characters and re-runs at three or more after activation); focusing a result previews its full commit message before you accept it.
 - **Branch browsing** — Pick a local/remote branch and browse its recent log.
 - **Merge branch to branch** — Select a source (local or remote-tracking) and local target branch; VV Git checks out the target and creates a confirmed `--no-ff` merge commit.
-- **Squash branch to branch + patch** — Select source `BIA-222` and local target `dev`; VV Git checks out `dev`, performs a squash merge, creates the commit, and writes `git format-patch -1 BIA-222 --stdout` to a patch file.
+- **Squash branch to branch + patch** — Select source `BIA-222` and local target `dev`; VV Git checks out `dev`, performs a squash merge, creates a commit titled `BIA-222_TO_dev.patch`, and writes `git format-patch -1 BIA-222 --stdout` to `BIA-222_TO_dev.patch` by default.
 - **Lightweight by design** — No GitHub account, background service, repository database, graph renderer, or bundled Git implementation. Commands run only when needed.
 
 ### Squash example
 
 1. Run **VV Git: Squash Branch to Branch + Create Patch**.
 2. Select `BIA-222` as the source and `dev` as the target.
-3. Enter the squash commit message and patch path (default: `patches/BIA-222.squash.patch`).
+3. Choose the patch path (default: `patches/BIA-222_TO_dev.patch`). The squash commit message is set to `BIA-222_TO_dev.patch`.
 4. Confirm the operation.
 
-The working tree must be clean. If the squash encounters a conflict or the commit fails, VV Git resets the attempted merge and restores the original branch. After a successful operation, the target branch remains checked out and the patch contains the latest source-branch commit exactly as produced by `format-patch -1`.
+The working tree must be clean. If the squash encounters a merge conflict, VV Git stops on the checked-out target branch and prompts you to resolve and commit the result (or reset it manually). Other failures reset the attempted merge and restore the original branch. After a successful operation, the target branch remains checked out and the patch contains the latest source-branch commit exactly as produced by `format-patch -1`.
 
 ---
 
@@ -62,7 +62,7 @@ Open the Command Palette (`Ctrl/Cmd+Shift+P`) and search for **VV Git**:
 | `Compare Commits or References` | Compare two commits, branches, tags, or refs. |
 | `Compare Branches` | Compare two branches directly. |
 | `Merge Branch to Branch` | Merge a local or remote-tracking source into a local target with a merge commit. |
-| `Squash Branch to Branch + Create Patch` | Squash a source branch into a local target and create `format-patch -1` (default filename: `SOURCE.squash.patch`). |
+| `Squash Branch to Branch + Create Patch` | Squash a source branch into a local target, commit it as `SOURCE_TO_TARGET.patch`, and create the same-named patch file. |
 | `Squash Commit to Branch` | Squash the selected commit and all earlier commits not already in a local target branch. |
 | `Browse Branches` | Pick a branch and open its recent log. |
 
