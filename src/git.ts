@@ -49,6 +49,12 @@ export interface CommitDetails extends CommitSummary {
   body: string;
 }
 
+export interface CommitFile {
+  status: string;
+  path: string;
+  previousPath?: string;
+}
+
 export interface BranchInfo {
   name: string;
   hash: string;
@@ -329,6 +335,52 @@ export class GitService {
       "--format=",
       this.safeRevision(ref),
     ], root);
+  }
+
+  public async commitFiles(root: string, ref: string): Promise<CommitFile[]> {
+    const output = await this.run([
+      "diff-tree",
+      "--root",
+      "--no-commit-id",
+      "--name-status",
+      "-r",
+      "-M",
+      "-m",
+      "-z",
+      this.safeRevision(ref),
+    ], root);
+    const fields = output.split("\\0");
+    const files: CommitFile[] = [];
+    for (let index = 0; index < fields.length;) {
+      const status = fields[index++];
+      if (!status) continue;
+      const firstPath = fields[index++] || "";
+      if (!firstPath) continue;
+      if (/^[RC]/.test(status)) {
+        const nextPath = fields[index++] || "";
+        if (!nextPath) continue;
+        files.push({ status, path: nextPath, previousPath: firstPath });
+      } else {
+        files.push({ status, path: firstPath });
+      }
+    }
+    return files;
+  }
+
+  public async commitPatch(root: string, ref: string, relativePath?: string): Promise<string> {
+    const args = [
+      "show",
+      "--no-color",
+      "--no-ext-diff",
+      "--format=",
+      "--patch",
+      "--find-renames",
+      "-m",
+      this.safeRevision(ref),
+      "--",
+    ];
+    if (relativePath) args.push(this.safeRelativePath(relativePath));
+    return this.run(args, root);
   }
 
   public async blame(root: string, relativePath: string): Promise<BlameLine[]> {

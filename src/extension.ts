@@ -9,6 +9,7 @@ import {
 import {
   BranchInfo,
   CommitDetails,
+  CommitFile,
   CommitSummary,
   GitCommandError,
   GitService,
@@ -24,6 +25,20 @@ interface FileTarget {
 
 interface RefPickItem extends vscode.QuickPickItem {
   ref: string;
+}
+
+interface CommitPickItem extends RefPickItem {
+  commit: CommitSummary;
+}
+
+interface CommitFilePickItem extends vscode.QuickPickItem {
+  file: CommitFile;
+}
+
+type CommitAction = "message" | "patch" | "filePatch" | "files" | "copyHash";
+
+interface CommitActionPickItem extends vscode.QuickPickItem {
+  action: CommitAction;
 }
 
 interface BranchPickItem extends vscode.QuickPickItem {
@@ -51,6 +66,14 @@ function shortError(error: unknown): string {
 function singleLine(value: string, max = 300): string {
   const compact = value.replace(/\s+/g, " ").trim();
   return compact.length > max ? `${compact.slice(0, max - 1)}…` : compact;
+}
+
+function commitPreview(details: CommitDetails): string {
+  return singleLine(details.body || details.subject, 280) || "(no commit message)";
+}
+
+function commitFileLabel(file: CommitFile): string {
+  return file.previousPath ? `${file.path} ← ${file.previousPath}` : file.path;
 }
 
 function branchFileName(branch: string): string {
@@ -245,15 +268,78 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   const pickCommitFromList = async (
+    root: string,
     commits: CommitSummary[],
     placeholder: string,
   ): Promise<string | undefined> => {
-    const items: RefPickItem[] = commits.map((commit) => ({
+    const items: CommitPickItem[] = commits.map((commit) => ({
       label: `$(git-commit) ${commit.shortHash} ${commit.subject}`,
       description: `${commit.author} · ${dateLabel(commit.date)}`,
+      detail: "Focus this commit to preview its full message",
       ref: commit.hash,
+      commit,
     }));
-    return pickItems(items, placeholder);
+
+    return new Promise<string | undefined>((resolve) => {
+      const picker = vscode.window.createQuickPick<CommitPickItem>();
+      picker.items = items;
+      picker.placeholder = placeholder;
+      picker.prompt = "Focus a commit to preview its message below";
+      picker.matchOnDescription = true;
+      picker.matchOnDetail = true;
+      picker.keepScrollPosition = true;
+      picker.ignoreFocusOut = false;
+
+      let currentItems = items;
+      let settled = false;
+      let previewRequest = 0;
+      const previewCache = new Map<string, string>();
+
+      const setPreview = (item: CommitPickItem, preview: string): void => {
+        item.detail = preview;
+        picker.items = [...currentItems];
+      };
+
+      const loadPreview = async (active: readonly CommitPickItem[]): Promise<void> => {
+        const item = active[0];
+        if (!item || settled) return;
+        const cached = previewCache.get(item.ref);
+        if (cached) {
+          setPreview(item, cached);
+          return;
+        }
+
+        const request = ++previewRequest;
+        picker.busy = true;
+        const details = await git.commit(root, item.ref).catch(() => undefined);
+        if (settled || request !== previewRequest) return;
+
+        const preview = details
+          ? commitPreview(details)
+          : "Commit preview is unavailable";
+        previewCache.set(item.ref, preview);
+        setPreview(item, preview);
+        picker.busy = false;
+      };
+
+      const finish = (value: string | undefined): void => {
+        if (settled) return;
+        settled = true;
+        previewRequest += 1;
+        picker.hide();
+        picker.dispose();
+        resolve(value);
+      };
+
+      picker.onDidChangeActive((active) => void loadPreview(active));
+      picker.onDidAccept(() => {
+        const selected = picker.selectedItems[0] || picker.activeItems[0];
+        finish(selected?.ref);
+      });
+      picker.onDidHide(() => finish(undefined));
+      picker.show();
+      if (items.length) picker.activeItems = [items[0]];
+    });
   };
 
   const showCommit = async (root: string, revision: string): Promise<void> => {
@@ -306,6 +392,156 @@ export function activate(context: vscode.ExtensionContext): void {
     await vscode.languages.setTextDocumentLanguage(document, "diff");
     await vscode.window.showTextDocument(document, { preview: false });
     output.appendLine(`${title} (${content.split(/\r?\n/).length} lines)`);
+  };
+
+  const pickCommitFile = async (
+    files: CommitFile[],
+    placeholder: string,
+  ): Promise<CommitFile | undefined> => {
+    const items: CommitFilePickItem[] = files.map((file) => ({
+      label: `$(file-code) ${file.path}`,
+      description: [
+        file.status,
+        file.previousPath ? `from ${file.previousPath}` : undefined,
+      ].filter(Boolean).join(" · "),
+      detail: "Enter to open this file's patch",
+      file,
+    }));
+    return new Promise<CommitFile | undefined>((resolve) => {
+      const picker = vscode.window.createQuickPick<CommitFilePickItem>();
+      picker.items = items;
+      picker.placeholder = placeholder;
+      picker.matchOnDescription = true;
+      picker.matchOnDetail = true;
+      picker.ignoreFocusOut = false;
+      let settled = false;
+      const finish = (value: CommitFile | undefined): void => {
+        if (settled) return;
+        settled = true;
+        picker.hide();
+        picker.dispose();
+        resolve(value);
+      };
+      picker.onDidAccept(() => finish(picker.selectedItems[0]?.file || picker.activeItems[0]?.file));
+      picker.onDidHide(() => finish(undefined));
+      picker.show();
+    });
+  };
+
+  const showCommitFiles = async (root: string, revision: string): Promise<void> => {
+    const files = await git.commitFiles(root, revision);
+    if (!files.length) {
+      vscode.window.showInformationMessage(`No changed files were found for ${revision}.`);
+      return;
+    }
+    output.clear();
+    output.appendLine(`VV Git · changed files · ${revision}`);
+    output.appendLine("─".repeat(72));
+    for (const file of files) {
+      output.appendLine(`${file.status.padEnd(5)} ${commitFileLabel(file)}`);
+    }
+    output.show(true);
+  };
+
+  const showCommitPatch = async (
+    root: string,
+    revision: string,
+    file?: CommitFile,
+  ): Promise<void> => {
+    const patch = await git.commitPatch(root, revision, file?.path);
+    if (!patch.trim()) {
+      vscode.window.showInformationMessage(
+        file ? `No patch was found for ${file.path}.` : `No patch was found for ${revision}.`,
+      );
+      return;
+    }
+    const suffix = file ? ` · ${file.path}` : " · all files";
+    await openDiffDocument(patch, `VV Git · ${revision.slice(0, 10)}${suffix}`);
+  };
+
+  const showCommitActions = async (root: string, revision: string): Promise<void> => {
+    const details = await git.commit(root, revision);
+    const stat = await git.commitStat(root, revision).catch(() => "");
+    const statText = singleLine(stat, 220);
+    const items: CommitActionPickItem[] = [
+      {
+        label: "$(comment-discussion) Show commit message and stats",
+        description: "Open the commit message in the VV Git output channel",
+        detail: commitPreview(details),
+        action: "message",
+      },
+      {
+        label: "$(diff) Show full commit patch",
+        description: "Open the patch for every changed file",
+        detail: statText || "No file statistics available",
+        action: "patch",
+      },
+      {
+        label: "$(file-code) Show patch for one file",
+        description: "Choose one changed file and open its patch",
+        detail: "Select a file after pressing Enter",
+        action: "filePatch",
+      },
+      {
+        label: "$(list-unordered) Show changed files",
+        description: "List file status and rename information",
+        detail: "Open the file list in the VV Git output channel",
+        action: "files",
+      },
+      {
+        label: "$(copy) Copy commit hash",
+        description: details.hash || revision,
+        detail: "Copy the full commit SHA to the clipboard",
+        action: "copyHash",
+      },
+    ];
+
+    const action = await new Promise<CommitAction | undefined>((resolve) => {
+      const picker = vscode.window.createQuickPick<CommitActionPickItem>();
+      picker.items = items;
+      picker.title = `VV Git · ${details.shortHash || revision.slice(0, 10)}`;
+      picker.placeholder = "Choose what to inspect for this commit";
+      picker.matchOnDescription = true;
+      picker.matchOnDetail = true;
+      picker.ignoreFocusOut = false;
+      let settled = false;
+      const finish = (value: CommitAction | undefined): void => {
+        if (settled) return;
+        settled = true;
+        picker.hide();
+        picker.dispose();
+        resolve(value);
+      };
+      picker.onDidAccept(() => finish(picker.selectedItems[0]?.action || picker.activeItems[0]?.action));
+      picker.onDidHide(() => finish(undefined));
+      picker.show();
+    });
+
+    switch (action) {
+      case "message":
+        await showCommit(root, revision);
+        break;
+      case "patch":
+        await showCommitPatch(root, revision);
+        break;
+      case "filePatch": {
+        const files = await git.commitFiles(root, revision);
+        if (!files.length) {
+          vscode.window.showInformationMessage(`No changed files were found for ${revision}.`);
+          break;
+        }
+        const file = await pickCommitFile(files, `Select a file changed by ${details.shortHash || revision}`);
+        if (file) await showCommitPatch(root, revision, file);
+        break;
+      }
+      case "files":
+        await showCommitFiles(root, revision);
+        break;
+      case "copyHash":
+        await vscode.env.clipboard.writeText(details.hash || revision);
+        vscode.window.showInformationMessage(`Copied commit ${details.shortHash || revision}.`);
+        break;
+    }
   };
 
   const showFileDiff = async (resource?: vscode.Uri): Promise<void> => {
@@ -408,8 +644,8 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.window.showInformationMessage(`No commits matched “${query}”.`);
       return;
     }
-    const selected = await pickCommitFromList(commits, `Commits matching “${query}”`);
-    if (selected) await showCommit(root, selected);
+    const selected = await pickCommitFromList(root, commits, `Commits matching “${query}”`);
+    if (selected) await showCommitActions(root, selected);
   };
 
   const showBranchLog = async (): Promise<void> => {
@@ -424,8 +660,8 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.window.showInformationMessage(`${branch} has no commits.`);
       return;
     }
-    const selected = await pickCommitFromList(commits, `Commits on ${branch}`);
-    if (selected) await showCommit(root, selected);
+    const selected = await pickCommitFromList(root, commits, `Commits on ${branch}`);
+    if (selected) await showCommitActions(root, selected);
   };
 
   const mergeBranchToBranch = async (): Promise<void> => {

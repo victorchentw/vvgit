@@ -2,7 +2,7 @@
 
 A small, focused VS Code extension for Git blame, commit history, diffs, branch comparison, merge, and squash-to-patch workflows. **VV Git** uses the local `git` executable and native VS Code quick picks/editors instead of a large webview or a full repository graph.
 
-Current release: `0.3.1`
+Current release: `0.3.2`
 
 Repository: `git@github.com:victorchentw/vvgit.git`
 
@@ -13,7 +13,7 @@ Repository: `git@github.com:victorchentw/vvgit.git`
 Install from the VS Code Marketplace when published, or install a packaged `.vsix` file:
 
 ```bash
-code --install-extension vvgit-0.3.1.vsix
+code --install-extension vvgit-0.3.2.vsix
 ```
 
 Open a Git workspace. Inline blame is enabled by default and appears only on the active cursor line.
@@ -26,9 +26,10 @@ Open a Git workspace. Inline blame is enabled by default and appears only on the
 - **GitLens-style file blame** — **VV Git: Toggle File Blame** adds a line-aligned annotation column directly before the source code in the same editor. It shows author, relative time, subject, and short hash at each contiguous commit block, so it scrolls and aligns natively without a terminal transcript or a duplicate source editor.
 - **Native Git views** — Blame and diff views use VS Code decorations, hovers, quick picks, and editors rather than a large webview.
 - **Commit messages** — Search recent commits or choose a reference and display the full message, author, date, and changed-file summary quickly.
+- **Commit inspection actions** — Focus a search result to preview its message, then choose the full patch, a patch for one file, the changed-file list, or copy the commit hash.
 - **File and repository diff** — Compare the current file with `HEAD`, or open the complete working-tree diff, including untracked files.
 - **Commit comparison** — Quickly compare two commits, branches, tags, or other Git references in a read-only diff editor.
-- **Commit-message search** — Search all reachable history by ticket number, keyword, or phrase.
+- **Commit-message search** — Search all reachable history by ticket number, keyword, or phrase; focusing a result previews its full commit message before you accept it.
 - **Branch browsing** — Pick a local/remote branch and browse its recent log.
 - **Merge branch to branch** — Select a source (local or remote-tracking) and local target branch; VV Git checks out the target and creates a confirmed `--no-ff` merge commit.
 - **Squash branch to branch + patch** — Select source `BIA-222` and local target `dev`; VV Git checks out `dev`, performs a squash merge, creates the commit, and writes `git format-patch -1 BIA-222 --stdout` to a patch file.
@@ -56,7 +57,7 @@ Open the Command Palette (`Ctrl/Cmd+Shift+P`) and search for **VV Git**:
 | `Show Commit Message` | Pick a commit/reference and show its message and stat. |
 | `Show File Diff` | Compare the active file with `HEAD`. |
 | `Show Repository Diff` | Show tracked and untracked working-tree changes. |
-| `Search Commit Messages` | Find commits by message text. |
+| `Search Commit Messages` | Find commits by message text, preview the focused result, and inspect its patch or changed files after pressing Enter. |
 | `Browse Branch Log` | Browse commits on a selected branch. |
 | `Compare Commits or References` | Compare two commits, branches, tags, or refs. |
 | `Compare Branches` | Compare two branches directly. |

@@ -2,7 +2,7 @@
   "name": "vvgit",
   "displayName": "VV Git",
   "description": "Fast, focused Git blame, history, diff, comparison, merge, and squash-to-patch tools for VS Code.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "publisher": "VictorChen",
   "license": "MIT",
   "pricing": "Free",

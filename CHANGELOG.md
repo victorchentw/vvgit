@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- Adds an active commit-message preview to search and branch-log quick picks.
+- Adds follow-up actions for commit message, full patch, per-file patch, changed-file list, and copying the commit hash.
+
 ## 0.3.1
 
 - Changes the Git graph accent in the extension icon from purple to Git orange-red.
