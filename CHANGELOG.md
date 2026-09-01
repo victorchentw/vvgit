@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.6
+
+- Fixes commit file parsing so search and branch-log actions can list changed files and open a selected file's patch.
+
 ## 0.3.5
 
 - Names branch-to-branch squash artifacts as `<source>_TO_<target>.patch` and uses that filename as the squash commit message.

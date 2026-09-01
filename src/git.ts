@@ -353,7 +353,7 @@ export class GitService {
       "-z",
       this.safeRevision(ref),
     ], root);
-    const fields = output.split("\\0");
+    const fields = output.split("\0");
     const files: CommitFile[] = [];
     for (let index = 0; index < fields.length;) {
       const status = fields[index++];
