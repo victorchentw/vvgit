@@ -13,6 +13,7 @@ import {
   CommitSummary,
   GitCommandError,
   GitService,
+  GitStatusEntry,
 } from "./git";
 import { GitDocumentProvider } from "./virtual-documents";
 
@@ -78,11 +79,37 @@ function commitFileLabel(file: CommitFile): string {
   return file.previousPath ? `${file.path} ← ${file.previousPath}` : file.path;
 }
 
-function branchFileName(branch: string): string {
-  const safe = branch
+function branchFileName(branch: string, isRemote = false): string {
+  // Remote-tracking refs are returned as `remote/branch` (for example,
+  // `origin/feature/BIA-222`). The remote name is metadata, not part of the
+  // branch name that should identify a generated patch.
+  const branchName = isRemote ? branch.replace(/^[^/]+\//, "") : branch;
+  const safe = branchName
     .replace(/[^A-Za-z0-9._-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return safe || "branch";
+}
+
+function isPathWithin(directory: string, pathname: string): boolean {
+  const relative = path.relative(path.resolve(directory), path.resolve(pathname));
+  return relative !== ".."
+    && !relative.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relative);
+}
+
+function isGeneratedPatchEntry(
+  root: string,
+  patchDirectory: string,
+  entry: GitStatusEntry,
+  outputPath?: string,
+): boolean {
+  // Previous VV Git runs leave their generated patch files untracked. They are
+  // output artifacts, not source changes, and must not prevent another squash.
+  if (entry.indexStatus !== "?" || entry.worktreeStatus !== "?") return false;
+  const entryPath = path.resolve(root, entry.path);
+  if (outputPath && entryPath === path.resolve(outputPath)) return true;
+  if (!entry.path.toLowerCase().endsWith(".patch")) return false;
+  return isPathWithin(patchDirectory, entryPath);
 }
 
 async function exists(pathname: string): Promise<boolean> {
@@ -1041,7 +1068,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const squashBranchToBranch = async (): Promise<void> => {
     const root = await repositoryRoot();
-    const localBranches = (await git.branches(root)).filter((branch) => !branch.isRemote);
+    const branches = await git.branches(root);
+    const localBranches = branches.filter((branch) => !branch.isRemote);
     if (!localBranches.length) {
       vscode.window.showInformationMessage("A squash merge needs at least one local target branch.");
       return;
@@ -1063,7 +1091,8 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.window.showInformationMessage(`${source} has no commits ahead of ${target}.`);
       return;
     }
-    const patchFileName = `${branchFileName(source)}_TO_${branchFileName(target)}.patch`;
+    const sourceInfo = branches.find((branch) => branch.name === source);
+    const patchFileName = `${branchFileName(source, sourceInfo?.isRemote)}_TO_${branchFileName(target)}.patch`;
     const commitMessage = patchFileName;
 
     const configuredDirectory = vscode.workspace.getConfiguration("vvgit").get<string>("patchDirectory", "patches");
@@ -1101,8 +1130,8 @@ export function activate(context: vscode.ExtensionContext): void {
     );
     if (confirmation !== "Squash & create patch") return;
 
-    const status = await git.status(root);
-    if (status.trim()) {
+    const status = await git.statusEntries(root);
+    if (status.some((entry) => !isGeneratedPatchEntry(root, patchDirectory, entry, patchPath))) {
       throw new Error("The working tree is not clean. Commit or stash changes before a squash merge.");
     }
     const operation = await git.operationInProgress(root);

@@ -2,7 +2,7 @@
 
 A small, focused VS Code extension for Git blame, commit history, diffs, branch comparison, merge, and squash-to-patch workflows. **VV Git** uses the local `git` executable and native VS Code quick picks/editors instead of a large webview or a full repository graph.
 
-Current release: `0.3.8`
+Current release: `0.3.9`
 
 Repository: `git@github.com:victorchentw/vvgit.git`
 
@@ -13,7 +13,7 @@ Repository: `git@github.com:victorchentw/vvgit.git`
 Install from the VS Code Marketplace when published, or install a packaged `.vsix` file:
 
 ```bash
-code --install-extension vvgit-0.3.8.vsix
+code --install-extension vvgit-0.3.9.vsix
 ```
 
 Open a Git workspace. Inline blame is enabled by default and appears only on the active cursor line.
@@ -32,7 +32,7 @@ Open a Git workspace. Inline blame is enabled by default and appears only on the
 - **Commit-message search** — Search all reachable history by ticket number, keyword, or phrase as you type (starts at four characters and re-runs at three or more after activation); focusing a result previews its full commit message before you accept it.
 - **Branch browsing** — Pick a local/remote branch and browse its recent log.
 - **Merge branch to branch** — Select a source (local or remote-tracking) and local target branch; VV Git checks out the target and creates a confirmed `--no-ff` merge commit.
-- **Squash branch to branch + patch** — Select source `BIA-222` and local target `dev`; VV Git checks out `dev`, performs a squash merge, creates a commit titled `BIA-222_TO_dev.patch`, and writes `git format-patch -1 BIA-222 --stdout` to `BIA-222_TO_dev.patch` by default.
+- **Squash branch to branch + patch** — Select source `BIA-222` and local target `dev`; VV Git checks out `dev`, performs a squash merge, creates a commit titled `BIA-222_TO_dev.patch`, and writes `git format-patch -1 BIA-222 --stdout` to `BIA-222_TO_dev.patch` by default. For a remote-tracking source such as `origin/feature/BIA-222`, the remote name is omitted from the filename (`feature-BIA-222_TO_dev.patch`).
 - **Lightweight by design** — No GitHub account, background service, repository database, graph renderer, or bundled Git implementation. Commands run only when needed.
 
 ### Squash example
@@ -42,7 +42,7 @@ Open a Git workspace. Inline blame is enabled by default and appears only on the
 3. Choose the patch path (default: `patches/BIA-222_TO_dev.patch`). The squash commit message is set to `BIA-222_TO_dev.patch`.
 4. Confirm the operation.
 
-The working tree must be clean. If the squash encounters a merge conflict, VV Git stops on the checked-out target branch and prompts you to resolve and commit the result (or reset it manually). Other failures reset the attempted merge and restore the original branch. After a successful operation, the target branch remains checked out and the patch contains the latest source-branch commit exactly as produced by `format-patch -1`.
+The working tree must be clean apart from untracked `.patch` artifacts already in the configured patch directory. If the squash encounters a merge conflict, VV Git stops on the checked-out target branch and prompts you to resolve and commit the result (or reset it manually). Other failures reset the attempted merge and restore the original branch. After a successful operation, the target branch remains checked out and the patch contains the latest source-branch commit exactly as produced by `format-patch -1`.
 
 ---
 

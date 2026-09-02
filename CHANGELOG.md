@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.9
+
+- Ignores existing untracked VV Git patch artifacts when checking squash preconditions.
+- Omits remote names from remote-tracking branch-to-branch squash patch filenames.
+
 ## 0.3.8
 
 - Applies the `<filename>_diff` virtual filename to single-file commit patch views as well as all-file views.

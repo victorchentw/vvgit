@@ -64,6 +64,13 @@ export interface BranchInfo {
   isRemote: boolean;
 }
 
+export interface GitStatusEntry {
+  indexStatus: string;
+  worktreeStatus: string;
+  path: string;
+  previousPath?: string;
+}
+
 export interface BlameLine {
   lineNumber: number;
   originalLine: number;
@@ -227,6 +234,33 @@ export class GitService {
 
   public async status(root: string): Promise<string> {
     return this.run(["status", "--porcelain=v1", "--untracked-files=all"], root);
+  }
+
+  public async statusEntries(root: string): Promise<GitStatusEntry[]> {
+    const output = await this.run([
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+    ], root);
+    const fields = output.split("\0");
+    const entries: GitStatusEntry[] = [];
+    for (let index = 0; index < fields.length;) {
+      const record = fields[index++];
+      if (!record || record.length < 4) continue;
+
+      const entry: GitStatusEntry = {
+        indexStatus: record[0] || " ",
+        worktreeStatus: record[1] || " ",
+        path: record.slice(3),
+      };
+      if (entry.indexStatus === "R" || entry.indexStatus === "C"
+        || entry.worktreeStatus === "R" || entry.worktreeStatus === "C") {
+        entry.previousPath = fields[index++] || undefined;
+      }
+      entries.push(entry);
+    }
+    return entries;
   }
 
   public async hasConflicts(root: string): Promise<boolean> {
