@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.3.9
+## 0.3.10
 
-- Ignores existing untracked VV Git patch artifacts when checking squash preconditions.
+- Allows squash/merge operations with untracked files when no tracked changes exist; detailed paths are written to the VV Git output and Git still protects files that would be overwritten.
 - Omits remote names from remote-tracking branch-to-branch squash patch filenames.
 
 ## 0.3.8

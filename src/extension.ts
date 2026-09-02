@@ -90,26 +90,11 @@ function branchFileName(branch: string, isRemote = false): string {
   return safe || "branch";
 }
 
-function isPathWithin(directory: string, pathname: string): boolean {
-  const relative = path.relative(path.resolve(directory), path.resolve(pathname));
-  return relative !== ".."
-    && !relative.startsWith(`..${path.sep}`)
-    && !path.isAbsolute(relative);
-}
-
-function isGeneratedPatchEntry(
-  root: string,
-  patchDirectory: string,
-  entry: GitStatusEntry,
-  outputPath?: string,
-): boolean {
-  // Previous VV Git runs leave their generated patch files untracked. They are
-  // output artifacts, not source changes, and must not prevent another squash.
-  if (entry.indexStatus !== "?" || entry.worktreeStatus !== "?") return false;
-  const entryPath = path.resolve(root, entry.path);
-  if (outputPath && entryPath === path.resolve(outputPath)) return true;
-  if (!entry.path.toLowerCase().endsWith(".patch")) return false;
-  return isPathWithin(patchDirectory, entryPath);
+function statusEntryLabel(entry: GitStatusEntry): string {
+  const code = `${entry.indexStatus}${entry.worktreeStatus}`;
+  return entry.previousPath
+    ? `${code} ${entry.path} (from ${entry.previousPath})`
+    : `${code} ${entry.path}`;
 }
 
 async function exists(pathname: string): Promise<boolean> {
@@ -162,7 +147,48 @@ export function activate(context: vscode.ExtensionContext): void {
   const showCommandError = (action: string, error: unknown): void => {
     const text = shortError(error);
     output.appendLine(`[error] ${action}: ${text}`);
+    if (error instanceof GitCommandError) {
+      output.appendLine(`[debug] Command: ${error.command}`);
+      if (error.exitCode !== undefined) output.appendLine(`[debug] Exit code: ${String(error.exitCode)}`);
+    } else if (error instanceof Error && error.stack) {
+      output.appendLine(`[debug] Stack: ${error.stack}`);
+    }
+    output.show(true);
     vscode.window.showErrorMessage(`${action}: ${singleLine(text)}`);
+  };
+
+  const ensureWorkingTreeReady = async (root: string, operation: string): Promise<void> => {
+    const entries = await git.statusEntries(root);
+    const trackedChanges = entries.filter(
+      (entry) => entry.indexStatus !== "?" || entry.worktreeStatus !== "?",
+    );
+    if (trackedChanges.length) {
+      output.appendLine(`[error] ${operation} blocked by ${trackedChanges.length} tracked change(s):`);
+      for (const entry of trackedChanges.slice(0, 100)) {
+        output.appendLine(`  ${statusEntryLabel(entry)}`);
+      }
+      if (trackedChanges.length > 100) {
+        output.appendLine(`  … and ${trackedChanges.length - 100} more tracked change(s)`);
+      }
+      output.show(true);
+      throw new Error(
+        `The tracked working tree is not clean (${trackedChanges.length} change(s)). See the VV Git output for details.`,
+      );
+    }
+
+    const untracked = entries.filter(
+      (entry) => entry.indexStatus === "?" && entry.worktreeStatus === "?",
+    );
+    if (untracked.length) {
+      output.appendLine(`[debug] ${operation} continuing with ${untracked.length} untracked file(s).`);
+      output.appendLine("[debug] Git will stop if checkout or merge would overwrite an untracked file.");
+      for (const entry of untracked.slice(0, 100)) {
+        output.appendLine(`  ${statusEntryLabel(entry)}`);
+      }
+      if (untracked.length > 100) {
+        output.appendLine(`  … and ${untracked.length - 100} more untracked file(s)`);
+      }
+    }
   };
 
   const repositoryRoot = async (resource?: vscode.Uri): Promise<string> => {
@@ -947,10 +973,7 @@ export function activate(context: vscode.ExtensionContext): void {
     );
     if (confirmation !== "Squash to branch") return;
 
-    const status = await git.status(root);
-    if (status.trim()) {
-      throw new Error("The working tree is not clean. Commit or stash changes before a squash merge.");
-    }
+    await ensureWorkingTreeReady(root, "Squash merge");
     const operation = await git.operationInProgress(root);
     if (operation) {
       throw new Error(`A Git ${operation} is already in progress. Finish or abort it before a squash merge.`);
@@ -1025,10 +1048,7 @@ export function activate(context: vscode.ExtensionContext): void {
     );
     if (confirmation !== "Merge branches") return;
 
-    const status = await git.status(root);
-    if (status.trim()) {
-      throw new Error("The working tree is not clean. Commit or stash changes before a branch merge.");
-    }
+    await ensureWorkingTreeReady(root, "Branch merge");
     const operation = await git.operationInProgress(root);
     if (operation) {
       throw new Error(`A Git ${operation} is already in progress. Finish or abort it before a branch merge.`);
@@ -1130,10 +1150,7 @@ export function activate(context: vscode.ExtensionContext): void {
     );
     if (confirmation !== "Squash & create patch") return;
 
-    const status = await git.statusEntries(root);
-    if (status.some((entry) => !isGeneratedPatchEntry(root, patchDirectory, entry, patchPath))) {
-      throw new Error("The working tree is not clean. Commit or stash changes before a squash merge.");
-    }
+    await ensureWorkingTreeReady(root, "Squash merge and patch creation");
     const operation = await git.operationInProgress(root);
     if (operation) {
       throw new Error(`A Git ${operation} is already in progress. Finish or abort it before a squash merge.`);
