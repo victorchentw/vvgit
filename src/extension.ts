@@ -1124,7 +1124,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const defaultPatch = path.join(patchDirectory, patchFileName);
     const defaultPatchValue = path.relative(root, defaultPatch).split(path.sep).join("/") || defaultPatch;
     const patchInput = await vscode.window.showInputBox({
-      prompt: "Where should the format-patch -1 file be written?",
+      prompt: "Where should the squash format-patch file be written?",
       value: defaultPatchValue,
       placeHolder: "patches/BIA-222_TO_dev.patch",
       ignoreFocusOut: true,
@@ -1144,7 +1144,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }
 
     const confirmation = await vscode.window.showWarningMessage(
-      `Squash ${ahead} commit(s) from ${source} into ${target}? Git will check out ${target}, create a commit, and write a format-patch -1 file.`,
+      `Squash ${ahead} commit(s) from ${source} into ${target}? Git will check out ${target}, create a commit, and write a patch for the squash commit.`,
       { modal: true, detail: `Commit message: ${commitMessage}\nPatch: ${patchPath}` },
       "Squash & create patch",
     );
@@ -1156,9 +1156,6 @@ export function activate(context: vscode.ExtensionContext): void {
       throw new Error(`A Git ${operation} is already in progress. Finish or abort it before a squash merge.`);
     }
 
-    // Capture the source patch before changing branches. The source ref stays
-    // untouched, so this is exactly `git format-patch -1 <source>`.
-    const patch = await git.formatPatch(root, source);
     const targetHead = await git.resolveCommit(root, target);
     const originalBranch = await git.currentBranch(root);
     const originalRef = originalBranch || await git.headHash(root);
@@ -1175,6 +1172,9 @@ export function activate(context: vscode.ExtensionContext): void {
       await git.mergeSquash(root, source);
       await git.createCommit(root, commitMessage.trim());
       committed = true;
+      // Format the new squash commit, not `source`'s tip commit. Formatting the
+      // source with `-1` would omit every earlier commit in the branch.
+      const patch = await git.formatPatch(root, "HEAD");
       await writeAtomically(patchPath, patch);
     } catch (error) {
       if (await leaveMergeConflictForUser(root, source, target, true)) return;

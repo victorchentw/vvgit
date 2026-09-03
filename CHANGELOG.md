@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.11
+
+- Generates the branch-to-branch patch from the new squash commit so it includes the complete squash diff, rather than only the source branch's tip commit.
+
 ## 0.3.10
 
 - Allows squash/merge operations with untracked files when no tracked changes exist; detailed paths are written to the VV Git output and Git still protects files that would be overwritten.
