@@ -254,7 +254,11 @@ export function activate(context: vscode.ExtensionContext): void {
     const branches = (await git.branches(root)).filter((branch) => !localOnly || !branch.isRemote);
     const current = await git.currentBranch(root);
     const items: BranchPickItem[] = branches.map((branch) => ({
-      label: `${branch.isRemote ? "$(cloud)" : "$(git-branch)"} ${branch.name}`,
+      // Keep the full branch name as the label.  Putting the codicon in the
+      // label makes QuickPick's built-in matcher unreliable for identifiers
+      // embedded in long branch names (for example, `BIA-2804`).
+      label: branch.name,
+      iconPath: new vscode.ThemeIcon(branch.isRemote ? "cloud" : "git-branch"),
       description: [
         branch.name === current ? "current" : undefined,
         branch.isRemote ? "remote" : "local",
@@ -301,7 +305,11 @@ export function activate(context: vscode.ExtensionContext): void {
     if (includeBranches) {
       for (const branch of await git.branches(root)) {
         add({
-          label: `${branch.isRemote ? "$(cloud)" : "$(git-branch)"} ${branch.name}`,
+          // Keep branch references searchable as plain label text.  The icon
+          // belongs in iconPath so identifiers such as `BIA-2804` are not
+          // affected by QuickPick label parsing.
+          label: branch.name,
+          iconPath: new vscode.ThemeIcon(branch.isRemote ? "cloud" : "git-branch"),
           description: `${branch.isRemote ? "remote" : "local"} · ${branch.hash.slice(0, 10)} · ${dateLabel(branch.date)}`,
           detail: branch.subject || "(no commit message)",
           ref: branch.name,

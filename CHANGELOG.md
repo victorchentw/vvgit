@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.12
+
+- Fixes branch QuickPick search so ticket identifiers such as `2804` find the full local or remote branch name.
+
 ## 0.3.11
 
 - Generates the branch-to-branch patch from the new squash commit so it includes the complete squash diff, rather than only the source branch's tip commit.
