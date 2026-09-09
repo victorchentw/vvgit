@@ -90,6 +90,11 @@ function branchFileName(branch: string, isRemote = false): string {
   return safe || "branch";
 }
 
+function branchMatchesQuery(branch: BranchInfo, query: string): boolean {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  return !normalizedQuery || branch.name.toLocaleLowerCase().includes(normalizedQuery);
+}
+
 function statusEntryLabel(entry: GitStatusEntry): string {
   const code = `${entry.indexStatus}${entry.worktreeStatus}`;
   return entry.previousPath
@@ -273,12 +278,31 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     return new Promise<string | undefined>((resolve) => {
       const picker = vscode.window.createQuickPick<BranchPickItem>();
-      picker.items = items;
       picker.placeholder = placeholder;
-      picker.matchOnDescription = true;
-      picker.matchOnDetail = true;
+      // Filter branches by their actual ref name instead of QuickPick's fuzzy
+      // matcher. A query such as `BIA-2804` must not return nearby ticket
+      // numbers such as `BIA-2018`.
+      picker.matchOnDescription = false;
+      picker.matchOnDetail = false;
       picker.ignoreFocusOut = false;
+      let visibleItems = items;
       let settled = false;
+
+      const updateItems = (query: string): void => {
+        visibleItems = items.filter((item) => branchMatchesQuery(item.branch, query));
+        // `alwaysShow` prevents QuickPick from applying a second fuzzy filter
+        // to the results selected by our exact branch-name search.
+        const displayedItems = visibleItems.map((item) => ({
+          ...item,
+          alwaysShow: true,
+        }));
+        picker.items = displayedItems;
+        picker.activeItems = displayedItems.length ? [displayedItems[0]] : [];
+        picker.prompt = query.trim() && !displayedItems.length
+          ? `No branches matched “${query.trim()}”`
+          : undefined;
+      };
+
       const finish = (value: string | undefined): void => {
         if (settled) return;
         settled = true;
@@ -286,8 +310,13 @@ export function activate(context: vscode.ExtensionContext): void {
         picker.dispose();
         resolve(value);
       };
-      picker.onDidAccept(() => finish(picker.selectedItems[0]?.branch.name));
+      picker.onDidChangeValue(updateItems);
+      picker.onDidAccept(() => {
+        const selected = picker.selectedItems[0] || picker.activeItems[0];
+        finish(selected?.branch.name);
+      });
       picker.onDidHide(() => finish(undefined));
+      updateItems("");
       picker.show();
     });
   };

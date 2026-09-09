@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.13
+
+- Uses exact, case-insensitive branch-name filtering so ticket queries do not return unrelated fuzzy matches.
+
 ## 0.3.12
 
 - Fixes branch QuickPick search so ticket identifiers such as `2804` find the full local or remote branch name.
