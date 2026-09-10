@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.15
+
+- Shows and restores diffs for lines from root commits by treating the empty Git tree as the previous version.
+
 ## 0.3.14
 
 - Adds previous-version section diffs to inline blame hovers, capped at ten preview lines, with an action to apply the previous code.

@@ -35,6 +35,10 @@ interface BlameRestoreArgs {
 }
 
 const MAX_HOVER_DIFF_LINES = 10;
+// Git's well-known empty tree lets root commits use the empty file as their
+// previous version, so their blame hovers can show and restore the initial
+// section as well.
+const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 const TRUSTED_COMMANDS = [
   "vvgit.showCommitMessage",
@@ -296,8 +300,7 @@ async function loadParentPatch(
   relativePath: string,
   commit: string,
 ): Promise<{ parent: string; patch: string } | undefined> {
-  const parent = await git.resolveCommit(root, `${commit}^`).catch(() => undefined);
-  if (!parent) return undefined;
+  const parent = await git.resolveCommit(root, `${commit}^`).catch(() => EMPTY_TREE);
   const patch = await git.diff(root, parent, commit, relativePath).catch(() => "");
   return patch.trim() ? { parent, patch } : undefined;
 }
