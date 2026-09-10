@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.14
+
+- Adds previous-version section diffs to inline blame hovers, capped at ten preview lines, with an action to apply the previous code.
+
 ## 0.3.13
 
 - Uses exact, case-insensitive branch-name filtering so ticket queries do not return unrelated fuzzy matches.

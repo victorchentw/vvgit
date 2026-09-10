@@ -2,7 +2,7 @@
 
 A small, focused VS Code extension for Git blame, commit history, diffs, branch comparison, merge, and squash-to-patch workflows. **VV Git** uses the local `git` executable and native VS Code quick picks/editors instead of a large webview or a full repository graph.
 
-Current release: `0.3.13`
+Current release: `0.3.14`
 
 Repository: `git@github.com:victorchentw/vvgit.git`
 
@@ -13,7 +13,7 @@ Repository: `git@github.com:victorchentw/vvgit.git`
 Install from the VS Code Marketplace when published, or install a packaged `.vsix` file:
 
 ```bash
-code --install-extension vvgit-0.3.13.vsix
+code --install-extension vvgit-0.3.14.vsix
 ```
 
 Open a Git workspace. Inline blame is enabled by default and appears only on the active cursor line.
@@ -22,7 +22,7 @@ Open a Git workspace. Inline blame is enabled by default and appears only on the
 
 ## Features
 
-- **Inline cursor blame** — Shows only the active line's author, relative time, and commit subject. Hover the line for a floating GitLens-style card with the full date, commit message, file statistics, hash, and quick Git actions.
+- **Inline cursor blame** — Shows only the active line's author, relative time, and commit subject. Hover the line for a floating GitLens-style card with the full date, commit message, file statistics, hash, a previous-version diff for the current section (limited to ten preview lines), and an action to apply the previous code.
 - **GitLens-style file blame** — **VV Git: Toggle File Blame** adds a line-aligned annotation column directly before the source code in the same editor. It shows author, relative time, subject, and short hash at each contiguous commit block, so it scrolls and aligns natively without a terminal transcript or a duplicate source editor.
 - **Native Git views** — Blame and diff views use VS Code decorations, hovers, quick picks, and editors rather than a large webview.
 - **Commit messages** — Search recent commits or choose a reference and display the full message, author, date, and changed-file summary quickly.

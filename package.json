@@ -2,7 +2,7 @@
   "name": "vvgit",
   "displayName": "VV Git",
   "description": "Fast, focused Git blame, history, diff, comparison, merge, and squash-to-patch tools for VS Code.",
-  "version": "0.3.13",
+  "version": "0.3.14",
   "publisher": "VictorChen",
   "license": "MIT",
   "pricing": "Free",
@@ -45,6 +45,7 @@
     "onCommand:vvgit.blameFile",
     "onCommand:vvgit.showCommitMessage",
     "onCommand:vvgit.showDiff",
+    "onCommand:vvgit.restoreBlameSection",
     "onCommand:vvgit.showRepositoryDiff",
     "onCommand:vvgit.searchLog",
     "onCommand:vvgit.showBranchLog",
@@ -83,6 +84,13 @@
         "title": "VV Git: Show File Diff",
         "category": "VV Git",
         "icon": "$(diff)",
+        "enablement": "resourceScheme == file"
+      },
+      {
+        "command": "vvgit.restoreBlameSection",
+        "title": "VV Git: Apply Previous Blame Section",
+        "category": "VV Git",
+        "icon": "$(discard)",
         "enablement": "resourceScheme == file"
       },
       {

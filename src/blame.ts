@@ -11,11 +11,35 @@ interface BlameCacheEntry {
 interface CommitHoverInfo {
   details?: CommitDetails;
   stat?: string;
+  parent?: string;
+  patch?: string;
 }
+
+interface BlameDiffHunk {
+  header: string;
+  body: string[];
+  oldStart: number;
+  oldCount: number;
+  newStart: number;
+  newCount: number;
+  oldLines: string[];
+  newLines: string[];
+}
+
+interface BlameRestoreArgs {
+  root: string;
+  relativePath: string;
+  commit: string;
+  lineNumber: number;
+  originalLine: number;
+}
+
+const MAX_HOVER_DIFF_LINES = 10;
 
 const TRUSTED_COMMANDS = [
   "vvgit.showCommitMessage",
   "vvgit.showDiff",
+  "vvgit.restoreBlameSection",
   "vvgit.compareCommits",
   "vvgit.searchLog",
   "vvgit.blameFile",
@@ -78,6 +102,101 @@ function isUncommitted(commit: string): boolean {
 
 function markdownText(value: string): string {
   return value.replace(/[\\`*_[\]<>]/g, "\\$&");
+}
+
+function hunkHeader(line: string): RegExpExecArray | undefined {
+  return /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line) || undefined;
+}
+
+function parseDiffHunks(patch: string): BlameDiffHunk[] {
+  const lines = patch.split(/\r?\n/);
+  const hunks: BlameDiffHunk[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = hunkHeader(lines[index]);
+    if (!match) continue;
+
+    const body: string[] = [];
+    let cursor = index + 1;
+    while (cursor < lines.length && !hunkHeader(lines[cursor])) {
+      const line = lines[cursor];
+      if (line.startsWith("diff --git ")) break;
+      if (line.startsWith(" ") || line.startsWith("+") || line.startsWith("-") || line.startsWith("\\")) {
+        body.push(line);
+        cursor += 1;
+        continue;
+      }
+      break;
+    }
+
+    const oldLines: string[] = [];
+    const newLines: string[] = [];
+    for (const line of body) {
+      if (line.startsWith(" ") || line.startsWith("-")) oldLines.push(line.slice(1));
+      if (line.startsWith(" ") || line.startsWith("+")) newLines.push(line.slice(1));
+    }
+
+    hunks.push({
+      header: lines[index],
+      body,
+      oldStart: Number(match[1]),
+      oldCount: Number(match[2] || 1),
+      newStart: Number(match[3]),
+      newCount: Number(match[4] || 1),
+      oldLines,
+      newLines,
+    });
+    index = cursor - 1;
+  }
+  return hunks;
+}
+
+function hunkForLine(patch: string | undefined, oneBasedLine: number): BlameDiffHunk | undefined {
+  if (!patch) return undefined;
+  return parseDiffHunks(patch).find((hunk) => (
+    hunk.newCount > 0
+    && oneBasedLine >= hunk.newStart
+    && oneBasedLine < hunk.newStart + hunk.newCount
+  ));
+}
+
+function diffPreview(hunk: BlameDiffHunk): { text: string; truncated: boolean; omitted: number } {
+  const lines = [hunk.header, ...hunk.body];
+  if (lines.length <= MAX_HOVER_DIFF_LINES) {
+    return { text: lines.join("\n"), truncated: false, omitted: 0 };
+  }
+
+  const kept = Math.max(1, MAX_HOVER_DIFF_LINES - 1);
+  const omitted = lines.length - kept;
+  return {
+    text: [...lines.slice(0, kept), `… ${omitted} more diff line${omitted === 1 ? "" : "s"} omitted`].join("\n"),
+    truncated: true,
+    omitted,
+  };
+}
+
+function restoreArgs(value: unknown): BlameRestoreArgs | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = value as Partial<BlameRestoreArgs>;
+  if (
+    typeof candidate.root !== "string"
+    || typeof candidate.relativePath !== "string"
+    || typeof candidate.commit !== "string"
+    || typeof candidate.lineNumber !== "number"
+    || !Number.isInteger(candidate.lineNumber)
+    || typeof candidate.originalLine !== "number"
+    || !Number.isInteger(candidate.originalLine)
+  ) return undefined;
+  return {
+    root: candidate.root,
+    relativePath: candidate.relativePath,
+    commit: candidate.commit,
+    lineNumber: candidate.lineNumber,
+    originalLine: candidate.originalLine,
+  };
+}
+
+function sameLines(actual: string[], expected: string[]): boolean {
+  return actual.length === expected.length && actual.every((line, index) => line === expected[index]);
 }
 
 function ordinal(value: number): string {
@@ -171,6 +290,18 @@ function statSummary(stat: string | undefined): string | undefined {
     .find((line) => /\d+ files? changed/.test(line));
 }
 
+async function loadParentPatch(
+  git: GitService,
+  root: string,
+  relativePath: string,
+  commit: string,
+): Promise<{ parent: string; patch: string } | undefined> {
+  const parent = await git.resolveCommit(root, `${commit}^`).catch(() => undefined);
+  if (!parent) return undefined;
+  const patch = await git.diff(root, parent, commit, relativePath).catch(() => "");
+  return patch.trim() ? { parent, patch } : undefined;
+}
+
 async function makeBlameHover(
   git: GitService,
   hoverCache: Map<string, Promise<CommitHoverInfo>>,
@@ -200,7 +331,13 @@ async function makeBlameHover(
     infoPromise = Promise.all([
       git.commit(cache.root, line.commit).catch(() => undefined),
       git.commitStat(cache.root, line.commit).catch(() => undefined),
-    ]).then(([details, stat]) => ({ details, stat }));
+      loadParentPatch(git, cache.root, cache.relativePath, line.commit),
+    ]).then(([details, stat, change]) => ({
+      details,
+      stat,
+      parent: change?.parent,
+      patch: change?.patch,
+    }));
     hoverCache.set(key, infoPromise);
   }
   const info = await infoPromise;
@@ -216,6 +353,25 @@ async function makeBlameHover(
   markdown.appendMarkdown(`\`${shortHash}\` · ${markdownText(cache.relativePath)}\n\n`);
   const summary = statSummary(info.stat);
   if (summary) markdown.appendMarkdown(`**${markdownText(summary)}**\n\n`);
+
+  const section = hunkForLine(info.patch, line.originalLine + 1);
+  if (section && info.parent) {
+    const preview = diffPreview(section);
+    markdown.appendMarkdown("**Changes from the previous version**\n\n");
+    markdown.appendCodeblock(preview.text, "diff");
+    markdown.appendMarkdown(`${commandLink(
+      "vvgit.restoreBlameSection",
+      [{
+        root: cache.root,
+        relativePath: cache.relativePath,
+        commit: line.commit,
+        lineNumber: line.lineNumber,
+        originalLine: line.originalLine,
+      }],
+      "Apply previous code",
+    )}\n\n`);
+  }
+
   markdown.appendMarkdown(commitActions(line));
   markdown.isTrusted = { enabledCommands: TRUSTED_COMMANDS };
   return new vscode.Hover(markdown, new vscode.Range(position.line, 0, position.line, sourceText.length));
@@ -377,6 +533,64 @@ export class InlineBlameController implements vscode.Disposable {
       : undefined;
     if (!cache || !line) return undefined;
     return makeBlameHover(this.git, this.hoverCache, cache, document, position, line);
+  }
+
+  public async restoreSection(value: unknown): Promise<void> {
+    const args = restoreArgs(value);
+    if (!args) throw new Error("The blame section to restore is invalid or expired.");
+
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.uri.scheme !== "file") {
+      throw new Error("Open the blamed file before applying its previous code.");
+    }
+
+    const root = await this.git.repositoryRoot(editor.document.uri);
+    const relativePath = this.git.relativePath(root, editor.document.uri);
+    if (root !== args.root || relativePath !== args.relativePath) {
+      throw new Error("The blamed file is no longer active. Move back to the original file and try again.");
+    }
+
+    const change = await loadParentPatch(this.git, root, relativePath, args.commit);
+    const section = hunkForLine(change?.patch, args.originalLine + 1);
+    if (!change || !section) {
+      throw new Error("The previous version of this blamed section is unavailable.");
+    }
+
+    const newOffset = args.originalLine + 1 - section.newStart;
+    const startLine = args.lineNumber - newOffset;
+    const endLine = startLine + section.newLines.length - 1;
+    if (
+      startLine < 0
+      || endLine < startLine
+      || endLine >= editor.document.lineCount
+    ) {
+      throw new Error("The blamed section is no longer present in the current file.");
+    }
+
+    const currentLines: string[] = [];
+    for (let lineNumber = startLine; lineNumber <= endLine; lineNumber += 1) {
+      currentLines.push(editor.document.lineAt(lineNumber).text);
+    }
+    if (!sameLines(currentLines, section.newLines)) {
+      throw new Error("The blamed section has changed. Refresh the file before applying previous code.");
+    }
+
+    const hasFollowingLine = endLine + 1 < editor.document.lineCount;
+    const range = hasFollowingLine
+      ? new vscode.Range(startLine, 0, endLine + 1, 0)
+      : new vscode.Range(startLine, 0, endLine, editor.document.lineAt(endLine).text.length);
+    const eol = editor.document.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+    const replacement = section.oldLines.join(eol)
+      + (hasFollowingLine && section.oldLines.length ? eol : "");
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(editor.document.uri, range, replacement);
+    if (!(await vscode.workspace.applyEdit(edit))) {
+      throw new Error("VS Code could not apply the previous code.");
+    }
+
+    this.hoverCache.clear();
+    this.scheduleRefresh();
+    vscode.window.showInformationMessage("Applied the previous version of this blamed section.");
   }
 
   private applyCurrentLine(editor: vscode.TextEditor): void {

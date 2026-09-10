@@ -1281,6 +1281,9 @@ export function activate(context: vscode.ExtensionContext): void {
   register("vvgit.blameFile", "Unable to show Git blame", showBlame);
   register("vvgit.showCommitMessage", "Unable to show commit message", showCommitMessage);
   register("vvgit.showDiff", "Unable to show file diff", showFileDiff);
+  register("vvgit.restoreBlameSection", "Unable to apply previous blame code", async (args: unknown) => {
+    await blame.restoreSection(args);
+  });
   register("vvgit.showRepositoryDiff", "Unable to show repository diff", showRepositoryDiff);
   register("vvgit.searchLog", "Unable to search commit messages", searchLog);
   register("vvgit.showBranchLog", "Unable to show branch log", showBranchLog);
