@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.16
+
+- Aligns blame diffs with the focused line and limits rollback to that contiguous blamed section instead of the entire commit hunk.
+
 ## 0.3.15
 
 - Shows and restores diffs for lines from root commits by treating the empty Git tree as the previous version.

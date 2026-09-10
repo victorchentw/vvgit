@@ -32,6 +32,7 @@ interface BlameRestoreArgs {
   commit: string;
   lineNumber: number;
   originalLine: number;
+  sectionEndOriginalLine: number;
 }
 
 const MAX_HOVER_DIFF_LINES = 10;
@@ -163,8 +164,122 @@ function hunkForLine(patch: string | undefined, oneBasedLine: number): BlameDiff
   ));
 }
 
-function diffPreview(hunk: BlameDiffHunk): { text: string; truncated: boolean; omitted: number } {
-  const lines = [hunk.header, ...hunk.body];
+interface HunkLine {
+  text: string;
+  oldLine?: number;
+  newLine?: number;
+}
+
+function hunkLines(hunk: BlameDiffHunk): HunkLine[] {
+  let oldLine = hunk.oldStart;
+  let newLine = hunk.newStart;
+  return hunk.body.map((text) => {
+    const line: HunkLine = { text };
+    if (text.startsWith(" ")) {
+      line.oldLine = oldLine;
+      line.newLine = newLine;
+      oldLine += 1;
+      newLine += 1;
+    } else if (text.startsWith("-")) {
+      line.oldLine = oldLine;
+      oldLine += 1;
+    } else if (text.startsWith("+")) {
+      line.newLine = newLine;
+      newLine += 1;
+    }
+    return line;
+  });
+}
+
+function hunkLineIndex(hunk: BlameDiffHunk, oneBasedLine: number): number {
+  const lines = hunkLines(hunk);
+  const exact = lines.findIndex((line) => line.newLine === oneBasedLine);
+  if (exact >= 0) return exact;
+  return lines.findIndex((line) => line.newLine !== undefined && line.newLine > oneBasedLine);
+}
+
+function offsetsBefore(hunk: BlameDiffHunk, index: number): { oldLine: number; newLine: number } {
+  let oldLine = hunk.oldStart;
+  let newLine = hunk.newStart;
+  for (const line of hunk.body.slice(0, index)) {
+    if (line.startsWith(" ") || line.startsWith("-")) oldLine += 1;
+    if (line.startsWith(" ") || line.startsWith("+")) newLine += 1;
+  }
+  return { oldLine, newLine };
+}
+
+function hunkLineEndIndex(
+  hunk: BlameDiffHunk,
+  start: number,
+  endOneBasedLine?: number,
+): number {
+  if (endOneBasedLine === undefined) return hunk.body.length;
+  const lines = hunkLines(hunk);
+  let end = start;
+  for (let index = start; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line.newLine !== undefined) {
+      if (line.newLine > endOneBasedLine) break;
+      end = index + 1;
+    } else if (line.text.startsWith("-") && end > start) {
+      // Keep deletions attached to the preceding focused replacement.
+      end = index + 1;
+    }
+  }
+  return end;
+}
+
+function deletionPreludeStart(hunk: BlameDiffHunk, start: number): number {
+  let result = start;
+  while (result > 0 && hunk.body[result - 1].startsWith("-")) result -= 1;
+  return result;
+}
+
+function sectionForLine(
+  hunk: BlameDiffHunk,
+  oneBasedLine: number,
+  endOneBasedLine?: number,
+): BlameDiffHunk | undefined {
+  const displayStart = hunkLineIndex(hunk, oneBasedLine);
+  if (displayStart < 0) return undefined;
+
+  // Include deletions immediately before the focused new line when applying
+  // the previous code, otherwise a removed line would never be restored.
+  const applyStart = deletionPreludeStart(hunk, displayStart);
+  const sectionEnd = hunkLineEndIndex(hunk, displayStart, endOneBasedLine);
+  const applyEnd = Math.min(sectionEnd, displayStart + MAX_HOVER_DIFF_LINES);
+  const body = hunk.body.slice(applyStart, applyEnd);
+  const offsets = offsetsBefore(hunk, applyStart);
+  const oldLines: string[] = [];
+  const newLines: string[] = [];
+  for (const line of body) {
+    if (line.startsWith(" ") || line.startsWith("-")) oldLines.push(line.slice(1));
+    if (line.startsWith(" ") || line.startsWith("+")) newLines.push(line.slice(1));
+  }
+  if (!newLines.length) return undefined;
+
+  return {
+    header: hunk.header,
+    body,
+    oldStart: offsets.oldLine,
+    oldCount: oldLines.length,
+    newStart: offsets.newLine,
+    newCount: newLines.length,
+    oldLines,
+    newLines,
+  };
+}
+
+function diffPreview(
+  hunk: BlameDiffHunk,
+  oneBasedLine: number,
+  endOneBasedLine?: number,
+): { text: string; truncated: boolean; omitted: number } {
+  const displayStart = hunkLineIndex(hunk, oneBasedLine);
+  if (displayStart < 0) return { text: "", truncated: false, omitted: 0 };
+  const start = deletionPreludeStart(hunk, displayStart);
+  const sectionEnd = hunkLineEndIndex(hunk, displayStart, endOneBasedLine);
+  const lines = hunk.body.slice(start, Math.min(sectionEnd, displayStart + MAX_HOVER_DIFF_LINES));
   if (lines.length <= MAX_HOVER_DIFF_LINES) {
     return { text: lines.join("\n"), truncated: false, omitted: 0 };
   }
@@ -189,6 +304,8 @@ function restoreArgs(value: unknown): BlameRestoreArgs | undefined {
     || !Number.isInteger(candidate.lineNumber)
     || typeof candidate.originalLine !== "number"
     || !Number.isInteger(candidate.originalLine)
+    || typeof candidate.sectionEndOriginalLine !== "number"
+    || !Number.isInteger(candidate.sectionEndOriginalLine)
   ) return undefined;
   return {
     root: candidate.root,
@@ -196,11 +313,18 @@ function restoreArgs(value: unknown): BlameRestoreArgs | undefined {
     commit: candidate.commit,
     lineNumber: candidate.lineNumber,
     originalLine: candidate.originalLine,
+    sectionEndOriginalLine: candidate.sectionEndOriginalLine,
   };
 }
 
 function sameLines(actual: string[], expected: string[]): boolean {
   return actual.length === expected.length && actual.every((line, index) => line === expected[index]);
+}
+
+function blameSectionEnd(lines: BlameLine[], line: BlameLine): number {
+  let index = line.lineNumber;
+  while (index + 1 < lines.length && lines[index + 1].commit === line.commit) index += 1;
+  return lines[index]?.originalLine ?? line.originalLine;
 }
 
 function ordinal(value: number): string {
@@ -357,22 +481,27 @@ async function makeBlameHover(
   const summary = statSummary(info.stat);
   if (summary) markdown.appendMarkdown(`**${markdownText(summary)}**\n\n`);
 
-  const section = hunkForLine(info.patch, line.originalLine + 1);
-  if (section && info.parent) {
-    const preview = diffPreview(section);
-    markdown.appendMarkdown("**Changes from the previous version**\n\n");
-    markdown.appendCodeblock(preview.text, "diff");
-    markdown.appendMarkdown(`${commandLink(
-      "vvgit.restoreBlameSection",
-      [{
-        root: cache.root,
-        relativePath: cache.relativePath,
-        commit: line.commit,
-        lineNumber: line.lineNumber,
-        originalLine: line.originalLine,
-      }],
-      "Apply previous code",
-    )}\n\n`);
+  const hunk = hunkForLine(info.patch, line.originalLine + 1);
+  const sectionEndOriginalLine = blameSectionEnd(cache.lines, line);
+  if (hunk && info.parent) {
+    const preview = diffPreview(hunk, line.originalLine + 1, sectionEndOriginalLine + 1);
+    const applySection = sectionForLine(hunk, line.originalLine + 1, sectionEndOriginalLine + 1);
+    markdown.appendMarkdown(`**Changes from the previous version (line ${position.line + 1} onward)**\n\n`);
+    if (preview.text) markdown.appendCodeblock(preview.text, "diff");
+    if (applySection) {
+      markdown.appendMarkdown(`${commandLink(
+        "vvgit.restoreBlameSection",
+        [{
+          root: cache.root,
+          relativePath: cache.relativePath,
+          commit: line.commit,
+          lineNumber: line.lineNumber,
+          originalLine: line.originalLine,
+          sectionEndOriginalLine,
+        }],
+        "Apply previous code",
+      )}\n\n`);
+    }
   }
 
   markdown.appendMarkdown(commitActions(line));
@@ -554,7 +683,10 @@ export class InlineBlameController implements vscode.Disposable {
     }
 
     const change = await loadParentPatch(this.git, root, relativePath, args.commit);
-    const section = hunkForLine(change?.patch, args.originalLine + 1);
+    const hunk = hunkForLine(change?.patch, args.originalLine + 1);
+    const section = hunk
+      ? sectionForLine(hunk, args.originalLine + 1, args.sectionEndOriginalLine + 1)
+      : undefined;
     if (!change || !section) {
       throw new Error("The previous version of this blamed section is unavailable.");
     }
