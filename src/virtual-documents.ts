@@ -9,24 +9,24 @@ interface SnapshotPayload {
   relativePath: string;
 }
 
-/** Read-only documents used to display Git snapshots and repository diffs. */
+/** Read-only documents used to display Git snapshots, diffs, and commit details. */
 export class GitDocumentProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
-  private readonly diffDocuments = new Map<string, string>();
+  private readonly textDocuments = new Map<string, string>();
   private sequence = 0;
 
   constructor(private readonly git: GitService) {}
 
   public dispose(): void {
-    this.diffDocuments.clear();
+    this.textDocuments.clear();
   }
 
   public provideTextDocumentContent(
     uri: vscode.Uri,
     _token: vscode.CancellationToken,
   ): vscode.ProviderResult<string> {
-    if (uri.scheme === "vvgit-diff") {
-      const id = uri.path.match(/^\/diff\/([^/]+)/)?.[1] || "";
-      return this.diffDocuments.get(id) || "";
+    if (uri.scheme === "vvgit-diff" || uri.scheme === "vvgit-commit") {
+      const id = uri.path.match(/^\/(?:diff|commit)\/([^/]+)/)?.[1] || "";
+      return this.textDocuments.get(id) || "";
     }
 
     const payload = this.payload(uri);
@@ -47,19 +47,27 @@ export class GitDocumentProvider implements vscode.TextDocumentContentProvider, 
   }
 
   public diffUri(content: string, displayName?: string): vscode.Uri {
+    return this.contentUri("vvgit-diff", "diff", content, displayName);
+  }
+
+  public commitUri(content: string, displayName: string): vscode.Uri {
+    return this.contentUri("vvgit-commit", "commit", content, displayName);
+  }
+
+  private contentUri(scheme: string, folder: string, content: string, displayName?: string): vscode.Uri {
     const id = `${Date.now().toString(36)}-${(++this.sequence).toString(36)}`;
-    this.diffDocuments.set(id, content);
-    // Keep the provider bounded when a user repeatedly compares large refs.
+    this.textDocuments.set(id, content);
+    // Keep the provider bounded when a user repeatedly opens virtual documents.
     // Documents already opened by VS Code retain their loaded content.
-    while (this.diffDocuments.size > 5) {
-      const first = this.diffDocuments.keys().next().value;
+    while (this.textDocuments.size > 5) {
+      const first = this.textDocuments.keys().next().value;
       if (!first) break;
-      this.diffDocuments.delete(first);
+      this.textDocuments.delete(first);
     }
     const suffix = displayName?.trim()
       ? `/${displayName.trim().replace(/\\/g, "/").replace(/^\/+/, "")}`
       : "";
-    return vscode.Uri.from({ scheme: "vvgit-diff", path: `/diff/${id}${suffix}` });
+    return vscode.Uri.from({ scheme, path: `/${folder}/${id}${suffix}` });
   }
 
   private payloadUri(scheme: string, payload: SnapshotPayload): vscode.Uri {

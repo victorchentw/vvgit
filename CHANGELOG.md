@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.17
+
+- Opens commit details in a dedicated editor tab instead of the VV Git output channel.
+
 ## 0.3.16
 
 - Aligns blame diffs with the focused line and limits rollback to that contiguous blamed section instead of the entire commit hunk.

@@ -147,6 +147,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.workspace.registerTextDocumentContentProvider("vvgit-ref", documents),
     vscode.workspace.registerTextDocumentContentProvider("vvgit-worktree", documents),
     vscode.workspace.registerTextDocumentContentProvider("vvgit-diff", documents),
+    vscode.workspace.registerTextDocumentContentProvider("vvgit-commit", documents),
   );
 
   const showCommandError = (action: string, error: unknown): void => {
@@ -577,22 +578,25 @@ export function activate(context: vscode.ExtensionContext): void {
   const showCommit = async (root: string, revision: string): Promise<void> => {
     const details: CommitDetails = await git.commit(root, revision);
     const stat = await git.commitStat(root, revision).catch(() => "");
-    output.clear();
-    output.appendLine("VV Git · commit message");
-    output.appendLine("─".repeat(72));
-    output.appendLine(`commit ${details.hash || revision}`);
-    output.appendLine(`Author: ${details.author}${details.email ? ` <${details.email}>` : ""}`);
-    output.appendLine(`Date:   ${dateLabel(details.date)}`);
-    output.appendLine("");
-    output.appendLine(details.body || details.subject || "(no commit message)");
+    const lines = [
+      "VV Git · commit message",
+      "─".repeat(72),
+      `commit ${details.hash || revision}`,
+      `Author: ${details.author}${details.email ? ` <${details.email}>` : ""}`,
+      `Date:   ${dateLabel(details.date)}`,
+      "",
+      details.body || details.subject || "(no commit message)",
+    ];
     if (stat.trim()) {
-      output.appendLine("");
-      output.appendLine("Files changed");
-      output.appendLine("─".repeat(72));
-      output.append(stat.trimEnd());
-      output.appendLine("");
+      lines.push("", "Files changed", "─".repeat(72), stat.trimEnd());
     }
-    output.show(true);
+    const documentName = `commit-${(details.hash || revision)
+      .slice(0, 10)
+      .replace(/[^A-Za-z0-9._-]/g, "-")}.txt`;
+    const uri = documents.commitUri(`${lines.join("\n")}\n`, documentName);
+    const document = await vscode.workspace.openTextDocument(uri);
+    await vscode.languages.setTextDocumentLanguage(document, "plaintext");
+    await vscode.window.showTextDocument(document, { preview: false });
   };
 
   const showCommitMessage = async (revision?: unknown): Promise<void> => {
