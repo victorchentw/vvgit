@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.21
+
+- Makes full commit SHAs searchable and directly selectable in commit-list and commit-search pickers, including per-file diff selection.
+
 ## 0.3.20
 
 - Allows full commit SHAs to be searched and accepted directly in reference pickers.

@@ -75,6 +75,10 @@ function commitPreview(details: CommitDetails): string {
   return singleLine(details.body || details.subject, 280) || "(no commit message)";
 }
 
+function isFullCommitHash(value: string): boolean {
+  return /^[0-9a-f]{40,64}$/i.test(value.trim());
+}
+
 function commitHashFromPatch(document?: vscode.TextDocument): string | undefined {
   if (document?.uri.scheme !== "vvgit-diff") return undefined;
   return document.getText().match(/^commit ([0-9a-f]{40,64})[ \t]*$/im)?.[1];
@@ -250,7 +254,7 @@ export function activate(context: vscode.ExtensionContext): void {
       picker.onDidAccept(() => {
         const selected = picker.selectedItems[0]?.ref;
         const typed = picker.value.trim();
-        const fullHash = /^[0-9a-f]{40,64}$/i.test(typed) ? typed : undefined;
+        const fullHash = isFullCommitHash(typed) ? typed : undefined;
         finish(fullHash || selected || (allowTypedReference && typed ? typed : undefined));
       });
       picker.onDidHide(() => finish(undefined));
@@ -374,7 +378,7 @@ export function activate(context: vscode.ExtensionContext): void {
   ): Promise<string | undefined> => {
     const items: CommitPickItem[] = commits.map((commit) => ({
       label: `$(git-commit) ${commit.shortHash} ${commit.subject}`,
-      description: `${commit.author} · ${dateLabel(commit.date)}`,
+      description: `${commit.hash} · ${commit.author} · ${dateLabel(commit.date)}`,
       detail: "Focus this commit to preview its full message",
       ref: commit.hash,
       commit,
@@ -435,7 +439,8 @@ export function activate(context: vscode.ExtensionContext): void {
       picker.onDidChangeActive((active) => void loadPreview(active));
       picker.onDidAccept(() => {
         const selected = picker.selectedItems[0] || picker.activeItems[0];
-        finish(selected?.ref);
+        const typed = picker.value.trim();
+        finish((isFullCommitHash(typed) ? typed : undefined) || selected?.ref);
       });
       picker.onDidHide(() => finish(undefined));
       picker.show();
@@ -489,7 +494,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
       const makeItems = (commits: CommitSummary[]): CommitPickItem[] => commits.map((commit) => ({
         label: `$(git-commit) ${commit.shortHash} ${commit.subject}`,
-        description: `${commit.author} · ${dateLabel(commit.date)}`,
+        description: `${commit.hash} · ${commit.author} · ${dateLabel(commit.date)}`,
         detail: "Focus this commit to preview its full message",
         ref: commit.hash,
         commit,
@@ -498,10 +503,15 @@ export function activate(context: vscode.ExtensionContext): void {
       const runSearch = async (query: string, request: number): Promise<void> => {
         let commits: CommitSummary[];
         try {
-          commits = await git.log(root, {
-            grep: query,
-            max: vscode.workspace.getConfiguration("vvgit").get<number>("log.maxCommits", 250),
-          });
+          if (isFullCommitHash(query)) {
+            const resolved = await git.resolveCommit(root, query);
+            commits = await git.log(root, { max: 1, ref: resolved });
+          } else {
+            commits = await git.log(root, {
+              grep: query,
+              max: vscode.workspace.getConfiguration("vvgit").get<number>("log.maxCommits", 250),
+            });
+          }
         } catch {
           if (settled || request !== searchRequest) return;
           currentItems = [];
