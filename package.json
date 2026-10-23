@@ -2,7 +2,7 @@
   "name": "vvgit",
   "displayName": "VV Git",
   "description": "Fast, focused Git blame, history, diff, comparison, merge, and squash-to-patch tools for VS Code.",
-  "version": "0.3.17",
+  "version": "0.3.18",
   "publisher": "VictorChen",
   "license": "MIT",
   "pricing": "Free",
@@ -43,7 +43,8 @@
     "onStartupFinished",
     "onCommand:vvgit.toggleInlineBlame",
     "onCommand:vvgit.blameFile",
-    "onCommand:vvgit.showCommitMessage",
+    "onCommand:vvgit.showCommitPatch",
+    "onCommand:vvgit.showCommitDiffByFile",
     "onCommand:vvgit.showDiff",
     "onCommand:vvgit.restoreBlameSection",
     "onCommand:vvgit.showRepositoryDiff",
@@ -74,10 +75,16 @@
         "enablement": "resourceScheme == file"
       },
       {
-        "command": "vvgit.showCommitMessage",
-        "title": "VV Git: Show Commit Message",
+        "command": "vvgit.showCommitPatch",
+        "title": "VV Git: Show Commit Patch",
         "category": "VV Git",
-        "icon": "$(git-commit)"
+        "icon": "$(diff)"
+      },
+      {
+        "command": "vvgit.showCommitDiffByFile",
+        "title": "VV Git: Show Commit Diff by File",
+        "category": "VV Git",
+        "icon": "$(git-compare)"
       },
       {
         "command": "vvgit.showDiff",
@@ -172,49 +179,54 @@
           "group": "navigation@52"
         },
         {
-          "command": "vvgit.showCommitMessage",
+          "command": "vvgit.showCommitPatch",
           "when": "resourceScheme == file",
           "group": "navigation@53"
         },
         {
-          "command": "vvgit.searchLog",
+          "command": "vvgit.showCommitDiffByFile",
           "when": "resourceScheme == file",
           "group": "navigation@54"
         },
         {
-          "command": "vvgit.compareCommits",
+          "command": "vvgit.searchLog",
           "when": "resourceScheme == file",
           "group": "navigation@55"
         },
         {
-          "command": "vvgit.showBranches",
+          "command": "vvgit.compareCommits",
           "when": "resourceScheme == file",
           "group": "navigation@56"
         },
         {
-          "command": "vvgit.compareBranches",
+          "command": "vvgit.showBranches",
           "when": "resourceScheme == file",
           "group": "navigation@57"
         },
         {
-          "command": "vvgit.mergeBranchToBranch",
+          "command": "vvgit.compareBranches",
           "when": "resourceScheme == file",
           "group": "navigation@58"
         },
         {
-          "command": "vvgit.squashBranchToBranch",
+          "command": "vvgit.mergeBranchToBranch",
           "when": "resourceScheme == file",
           "group": "navigation@59"
         },
         {
-          "command": "vvgit.showRepositoryDiff",
+          "command": "vvgit.squashBranchToBranch",
           "when": "resourceScheme == file",
           "group": "navigation@60"
         },
         {
-          "command": "vvgit.refreshBlame",
+          "command": "vvgit.showRepositoryDiff",
           "when": "resourceScheme == file",
           "group": "navigation@61"
+        },
+        {
+          "command": "vvgit.refreshBlame",
+          "when": "resourceScheme == file",
+          "group": "navigation@62"
         }
       ],
       "editor/context": [

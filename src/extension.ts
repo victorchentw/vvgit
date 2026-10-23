@@ -36,7 +36,7 @@ interface CommitFilePickItem extends vscode.QuickPickItem {
   file: CommitFile;
 }
 
-type CommitAction = "message" | "patch" | "filePatch" | "allPatches" | "files" | "copyHash" | "squash";
+type CommitAction = "patch" | "diffByFile" | "filePatch" | "allPatches" | "files" | "copyHash" | "squash";
 interface CommitActionPickItem extends vscode.QuickPickItem {
   action: CommitAction;
 }
@@ -575,37 +575,22 @@ export function activate(context: vscode.ExtensionContext): void {
     });
   };
 
-  const showCommit = async (root: string, revision: string): Promise<void> => {
-    const details: CommitDetails = await git.commit(root, revision);
-    const stat = await git.commitStat(root, revision).catch(() => "");
-    const lines = [
-      "VV Git · commit message",
-      "─".repeat(72),
-      `commit ${details.hash || revision}`,
-      `Author: ${details.author}${details.email ? ` <${details.email}>` : ""}`,
-      `Date:   ${dateLabel(details.date)}`,
-      "",
-      details.body || details.subject || "(no commit message)",
-    ];
-    if (stat.trim()) {
-      lines.push("", "Files changed", "─".repeat(72), stat.trimEnd());
-    }
-    const documentName = `commit-${(details.hash || revision)
-      .slice(0, 10)
-      .replace(/[^A-Za-z0-9._-]/g, "-")}.txt`;
-    const uri = documents.commitUri(`${lines.join("\n")}\n`, documentName);
-    const document = await vscode.workspace.openTextDocument(uri);
-    await vscode.languages.setTextDocumentLanguage(document, "plaintext");
-    await vscode.window.showTextDocument(document, { preview: false });
-  };
-
-  const showCommitMessage = async (revision?: unknown): Promise<void> => {
+  const showCommitPatchCommand = async (revision?: unknown): Promise<void> => {
     const root = await repositoryRoot();
     const selected = typeof revision === "string" && revision.trim()
       ? revision.trim()
       : await pickReference(root, "Select a commit or type a Git reference");
     if (!selected) return;
-    await showCommit(root, selected);
+    await showCommitPatch(root, selected);
+  };
+
+  const showCommitDiffByFileCommand = async (revision?: unknown): Promise<void> => {
+    const root = await repositoryRoot();
+    const selected = typeof revision === "string" && revision.trim()
+      ? revision.trim()
+      : await pickReference(root, "Select a commit or type a Git reference");
+    if (!selected) return;
+    await showCommitDiffByFile(root, selected);
   };
 
   const showBlame = async (resource?: vscode.Uri): Promise<void> => {
@@ -683,23 +668,34 @@ export function activate(context: vscode.ExtensionContext): void {
     output.show(true);
   };
 
-  const showCommitPatch = async (
-    root: string,
-    revision: string,
-    file?: CommitFile,
-  ): Promise<void> => {
-    const patch = await git.commitPatch(root, revision, file?.path);
+  const showCommitPatch = async (root: string, revision: string): Promise<void> => {
+    const patch = await git.commitShow(root, revision);
     if (!patch.trim()) {
-      vscode.window.showInformationMessage(
-        file ? `No patch was found for ${file.path}.` : `No patch was found for ${revision}.`,
-      );
+      vscode.window.showInformationMessage(`No commit output was found for ${revision}.`);
       return;
     }
-    const suffix = file ? ` · ${file.path}` : " · all files";
+    const commit = await git.resolveCommit(root, revision);
     await openDiffDocument(
       patch,
-      `VV Git · ${revision.slice(0, 10)}${suffix}`,
-      file ? `${file.path}_diff` : undefined,
+      `VV Git · ${commit.slice(0, 10)} · full commit`,
+      `commit-${commit.slice(0, 10)}.patch`,
+    );
+  };
+
+  const showCommitFilePatch = async (
+    root: string,
+    revision: string,
+    file: CommitFile,
+  ): Promise<void> => {
+    const patch = await git.commitPatch(root, revision, file.path);
+    if (!patch.trim()) {
+      vscode.window.showInformationMessage(`No patch was found for ${file.path}.`);
+      return;
+    }
+    await openDiffDocument(
+      patch,
+      `VV Git · ${revision.slice(0, 10)} · ${file.path}`,
+      `${file.path}_diff`,
     );
   };
 
@@ -741,22 +737,61 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   };
 
+  const showCommitDiffByFile = async (root: string, revision: string): Promise<void> => {
+    const { parent, files } = await git.commitDiffFiles(root, revision);
+    if (!files.length) {
+      vscode.window.showInformationMessage(`No changed files were found for ${revision}.`);
+      return;
+    }
+
+    const commit = await git.resolveCommit(root, revision);
+    let opened = 0;
+    const skipped: string[] = [];
+    for (const file of files) {
+      const beforePath = file.previousPath || file.path;
+      const before = documents.refUri(root, parent || "", beforePath);
+      const after = documents.refUri(root, commit, file.path);
+      const beforeLabel = parent ? parent.slice(0, 10) : "empty tree";
+      const title = `VV Git: ${commitFileLabel(file)} · ${beforeLabel} ↔ ${commit.slice(0, 10)}`;
+      try {
+        await vscode.commands.executeCommand("vscode.diff", before, after, title, { preview: false });
+        opened += 1;
+      } catch (error) {
+        skipped.push(`${file.path}: ${singleLine(shortError(error), 120)}`);
+      }
+    }
+
+    if (!opened) {
+      vscode.window.showWarningMessage(`No file diffs could be opened for ${revision}.`);
+      return;
+    }
+    if (skipped.length) {
+      vscode.window.showWarningMessage(
+        `Opened ${opened} file diff${opened === 1 ? "" : "s"}; skipped ${skipped.join(", ")}.`,
+      );
+    } else {
+      vscode.window.showInformationMessage(
+        `Opened ${opened} individual file diff${opened === 1 ? "" : "s"}.`,
+      );
+    }
+  };
+
   const showCommitActions = async (root: string, revision: string): Promise<void> => {
     const details = await git.commit(root, revision);
     const stat = await git.commitStat(root, revision).catch(() => "");
     const statText = singleLine(stat, 220);
     const items: CommitActionPickItem[] = [
       {
-        label: "$(comment-discussion) Show commit message and stats",
-        description: "Open the commit message in the VV Git output channel",
+        label: "$(diff) Show commit patch",
+        description: "Open the complete git show output in a patch tab",
         detail: commitPreview(details),
-        action: "message",
+        action: "patch",
       },
       {
-        label: "$(diff) Show full commit patch",
-        description: "Open the patch for every changed file",
-        detail: statText || "No file statistics available",
-        action: "patch",
+        label: "$(git-compare) Show commit diff by file",
+        description: "Compare each changed file with its version before the commit",
+        detail: statText || "One before/after diff editor per changed file",
+        action: "diffByFile",
       },
       {
         label: "$(file-code) Show patch for one file",
@@ -812,11 +847,11 @@ export function activate(context: vscode.ExtensionContext): void {
     });
 
     switch (action) {
-      case "message":
-        await showCommit(root, revision);
-        break;
       case "patch":
         await showCommitPatch(root, revision);
+        break;
+      case "diffByFile":
+        await showCommitDiffByFile(root, revision);
         break;
       case "filePatch": {
         const files = await git.commitFiles(root, revision);
@@ -825,7 +860,7 @@ export function activate(context: vscode.ExtensionContext): void {
           break;
         }
         const file = await pickCommitFile(files, `Select a file changed by ${details.shortHash || revision}`);
-        if (file) await showCommitPatch(root, revision, file);
+        if (file) await showCommitFilePatch(root, revision, file);
         break;
       }
       case "allPatches":
@@ -1283,7 +1318,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.showInformationMessage(`VV Git inline blame ${enabled ? "enabled" : "disabled"}.`);
   });
   register("vvgit.blameFile", "Unable to show Git blame", showBlame);
-  register("vvgit.showCommitMessage", "Unable to show commit message", showCommitMessage);
+  register("vvgit.showCommitPatch", "Unable to show commit patch", showCommitPatchCommand);
+  register("vvgit.showCommitDiffByFile", "Unable to show commit diff by file", showCommitDiffByFileCommand);
   register("vvgit.showDiff", "Unable to show file diff", showFileDiff);
   register("vvgit.restoreBlameSection", "Unable to apply previous blame code", async (args: unknown) => {
     await blame.restoreSection(args);

@@ -9,29 +9,30 @@ interface SnapshotPayload {
   relativePath: string;
 }
 
-/** Read-only documents used to display Git snapshots, diffs, and commit details. */
+/** Read-only documents used to display Git snapshots and patches. */
 export class GitDocumentProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
-  private readonly textDocuments = new Map<string, string>();
+  private readonly diffDocuments = new Map<string, string>();
   private sequence = 0;
 
   constructor(private readonly git: GitService) {}
 
   public dispose(): void {
-    this.textDocuments.clear();
+    this.diffDocuments.clear();
   }
 
   public provideTextDocumentContent(
     uri: vscode.Uri,
     _token: vscode.CancellationToken,
   ): vscode.ProviderResult<string> {
-    if (uri.scheme === "vvgit-diff" || uri.scheme === "vvgit-commit") {
-      const id = uri.path.match(/^\/(?:diff|commit)\/([^/]+)/)?.[1] || "";
-      return this.textDocuments.get(id) || "";
+    if (uri.scheme === "vvgit-diff") {
+      const id = uri.path.match(/^\/diff\/([^/]+)/)?.[1] || "";
+      return this.diffDocuments.get(id) || "";
     }
 
     const payload = this.payload(uri);
     if (!payload) return "";
     if (uri.scheme === "vvgit-ref") {
+      if (!payload.ref) return "";
       return this.git.showFile(payload.root, payload.ref, payload.relativePath).catch(() => "");
     }
     if (uri.scheme === "vvgit-worktree") return this.worktreeText(payload);
@@ -50,19 +51,15 @@ export class GitDocumentProvider implements vscode.TextDocumentContentProvider, 
     return this.contentUri("vvgit-diff", "diff", content, displayName);
   }
 
-  public commitUri(content: string, displayName: string): vscode.Uri {
-    return this.contentUri("vvgit-commit", "commit", content, displayName);
-  }
-
   private contentUri(scheme: string, folder: string, content: string, displayName?: string): vscode.Uri {
     const id = `${Date.now().toString(36)}-${(++this.sequence).toString(36)}`;
-    this.textDocuments.set(id, content);
+    this.diffDocuments.set(id, content);
     // Keep the provider bounded when a user repeatedly opens virtual documents.
     // Documents already opened by VS Code retain their loaded content.
-    while (this.textDocuments.size > 5) {
-      const first = this.textDocuments.keys().next().value;
+    while (this.diffDocuments.size > 5) {
+      const first = this.diffDocuments.keys().next().value;
       if (!first) break;
-      this.textDocuments.delete(first);
+      this.diffDocuments.delete(first);
     }
     const suffix = displayName?.trim()
       ? `/${displayName.trim().replace(/\\/g, "/").replace(/^\/+/, "")}`

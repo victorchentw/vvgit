@@ -42,7 +42,8 @@ const MAX_HOVER_DIFF_LINES = 10;
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 const TRUSTED_COMMANDS = [
-  "vvgit.showCommitMessage",
+  "vvgit.showCommitPatch",
+  "vvgit.showCommitDiffByFile",
   "vvgit.showDiff",
   "vvgit.restoreBlameSection",
   "vvgit.compareCommits",
@@ -400,7 +401,8 @@ function commitActions(line: BlameLine): string {
   if (!isUncommitted(line.commit)) {
     actions.push(commandLink("vvgit.squashCommitToBranch", [line.commit], "Squash to branch"));
     actions.unshift(
-      commandLink("vvgit.showCommitMessage", [line.commit], "Commit message"),
+      commandLink("vvgit.showCommitPatch", [line.commit], "Commit patch"),
+      commandLink("vvgit.showCommitDiffByFile", [line.commit], "Diff by file"),
       commandLink("vvgit.compareCommits", [line.commit], "Compare"),
       commandLink("vvgit.searchLog", [line.summary], "Search"),
     );

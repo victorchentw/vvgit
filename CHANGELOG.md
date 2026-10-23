@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.18
+
+- Replaces the commit-message view with the complete `git show` patch in an editor tab.
+- Adds per-file before/after commit diff editors.
+
 ## 0.3.17
 
 - Opens commit details in a dedicated editor tab instead of the VV Git output channel.

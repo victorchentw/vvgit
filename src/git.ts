@@ -118,6 +118,25 @@ function parseRecords(output: string): string[][] {
     .map((record) => record.split(FIELD_SEPARATOR));
 }
 
+function parseNameStatus(output: string): CommitFile[] {
+  const fields = output.split("\0");
+  const files: CommitFile[] = [];
+  for (let index = 0; index < fields.length;) {
+    const status = fields[index++];
+    if (!status) continue;
+    const firstPath = fields[index++] || "";
+    if (!firstPath) continue;
+    if (/^[RC]/.test(status)) {
+      const nextPath = fields[index++] || "";
+      if (!nextPath) continue;
+      files.push({ status, path: nextPath, previousPath: firstPath });
+    } else {
+      files.push({ status, path: firstPath });
+    }
+  }
+  return files;
+}
+
 /** Small, argument-safe wrapper around the system git executable. */
 export class GitService {
   public get gitPath(): string {
@@ -375,6 +394,16 @@ export class GitService {
     ], root);
   }
 
+  public async commitShow(root: string, ref: string): Promise<string> {
+    return this.run([
+      "show",
+      "--no-color",
+      "--no-ext-diff",
+      "--find-renames",
+      this.safeRevision(ref),
+    ], root);
+  }
+
   public async commitFiles(root: string, ref: string): Promise<CommitFile[]> {
     const output = await this.run([
       "diff-tree",
@@ -387,22 +416,32 @@ export class GitService {
       "-z",
       this.safeRevision(ref),
     ], root);
-    const fields = output.split("\0");
-    const files: CommitFile[] = [];
-    for (let index = 0; index < fields.length;) {
-      const status = fields[index++];
-      if (!status) continue;
-      const firstPath = fields[index++] || "";
-      if (!firstPath) continue;
-      if (/^[RC]/.test(status)) {
-        const nextPath = fields[index++] || "";
-        if (!nextPath) continue;
-        files.push({ status, path: nextPath, previousPath: firstPath });
-      } else {
-        files.push({ status, path: firstPath });
-      }
-    }
-    return files;
+    return parseNameStatus(output);
+  }
+
+  public async commitDiffFiles(
+    root: string,
+    ref: string,
+  ): Promise<{ parent?: string; files: CommitFile[] }> {
+    const revision = await this.resolveCommit(root, ref);
+    const parentResult = await this.execute(
+      ["rev-parse", "--verify", "-q", `${revision}^1`],
+      root,
+      [1, 128],
+    );
+    const parent = parentResult.stdout.trim() || undefined;
+    if (!parent) return { files: await this.commitFiles(root, revision) };
+
+    const output = await this.run([
+      "diff",
+      "--name-status",
+      "-z",
+      "-M",
+      parent,
+      revision,
+      "--",
+    ], root);
+    return { parent, files: parseNameStatus(output) };
   }
 
   public async commitPatch(root: string, ref: string, relativePath?: string): Promise<string> {
