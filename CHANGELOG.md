@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.19
+
+- Uses the active commit patch as the target for per-file diffs; fallback selection lists commits only, never branches.
+
 ## 0.3.18
 
 - Replaces the commit-message view with the complete `git show` patch in an editor tab.

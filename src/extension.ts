@@ -75,6 +75,11 @@ function commitPreview(details: CommitDetails): string {
   return singleLine(details.body || details.subject, 280) || "(no commit message)";
 }
 
+function commitHashFromPatch(document?: vscode.TextDocument): string | undefined {
+  if (document?.uri.scheme !== "vvgit-diff") return undefined;
+  return document.getText().match(/^commit ([0-9a-f]{40,64})[ \t]*$/im)?.[1];
+}
+
 function commitFileLabel(file: CommitFile): string {
   return file.previousPath ? `${file.path} ← ${file.previousPath}` : file.path;
 }
@@ -586,9 +591,18 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const showCommitDiffByFileCommand = async (revision?: unknown): Promise<void> => {
     const root = await repositoryRoot();
-    const selected = typeof revision === "string" && revision.trim()
+    const activeCommit = commitHashFromPatch(vscode.window.activeTextEditor?.document);
+    let selected = typeof revision === "string" && revision.trim()
       ? revision.trim()
-      : await pickReference(root, "Select a commit or type a Git reference");
+      : activeCommit;
+    if (!selected) {
+      const commits = await git.log(root, { max: 250 });
+      selected = await pickCommitFromList(
+        root,
+        commits,
+        "Select a commit to compare with its previous commit",
+      );
+    }
     if (!selected) return;
     await showCommitDiffByFile(root, selected);
   };

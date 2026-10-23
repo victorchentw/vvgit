@@ -2,7 +2,7 @@
   "name": "vvgit",
   "displayName": "VV Git",
   "description": "Fast, focused Git blame, history, diff, comparison, merge, and squash-to-patch tools for VS Code.",
-  "version": "0.3.18",
+  "version": "0.3.19",
   "publisher": "VictorChen",
   "license": "MIT",
   "pricing": "Free",
@@ -185,7 +185,7 @@
         },
         {
           "command": "vvgit.showCommitDiffByFile",
-          "when": "resourceScheme == file",
+          "when": "resourceScheme == file || resourceScheme == vvgit-diff",
           "group": "navigation@54"
         },
         {
