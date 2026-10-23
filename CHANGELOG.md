@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.20
+
+- Allows full commit SHAs to be searched and accepted directly in reference pickers.
+
 ## 0.3.19
 
 - Uses the active commit patch as the target for per-file diffs; fallback selection lists commits only, never branches.

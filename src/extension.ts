@@ -250,7 +250,8 @@ export function activate(context: vscode.ExtensionContext): void {
       picker.onDidAccept(() => {
         const selected = picker.selectedItems[0]?.ref;
         const typed = picker.value.trim();
-        finish(selected || (allowTypedReference && typed ? typed : undefined));
+        const fullHash = /^[0-9a-f]{40,64}$/i.test(typed) ? typed : undefined;
+        finish(fullHash || selected || (allowTypedReference && typed ? typed : undefined));
       });
       picker.onDidHide(() => finish(undefined));
       picker.show();
@@ -355,6 +356,7 @@ export function activate(context: vscode.ExtensionContext): void {
       add({
         label: `$(git-commit) ${commit.shortHash} ${commit.subject}`,
         description: `${commit.author} · ${dateLabel(commit.date)}`,
+        detail: commit.hash,
         ref: commit.hash,
       });
     }
